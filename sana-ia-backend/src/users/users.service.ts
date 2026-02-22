@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, InternalServerErrorException, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, InternalServerErrorException, Logger, NotFoundException } from '@nestjs/common';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { User } from './entities/user.entity';
@@ -6,6 +6,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Role } from 'src/roles/entities/role.entity';
 import * as bcrypt from 'bcrypt';
+import { RoleEnum } from 'src/enums/role.enums';
 
 @Injectable()
 export class UsersService {
@@ -23,17 +24,17 @@ export class UsersService {
 
     try {
 
-      const user = await this.userRepository.findBy({ email: createUserDto.email });
+      const user = await this.userRepository.findOneBy({ email: createUserDto.email });
 
-      if (!user) {
+      if (user) {
         this.logger.warn(`Email ${createUserDto.email} already in use`);
-        throw new BadRequestException('Email already in use');
+        throw new ConflictException('Email already in use');
       }
 
-      const role = await this.roleRepository.findOneBy({ id: createUserDto.roleId });
+      const role = await this.roleRepository.findOneBy({ name: RoleEnum.USER });
 
       if (!role) {
-        this.logger.warn(`Role with id ${createUserDto.roleId} not found`);
+        this.logger.warn(`Role with name ${RoleEnum.USER} not found`);
         throw new NotFoundException('Role not found');
       }
 
@@ -49,7 +50,7 @@ export class UsersService {
 
     } catch (error) {
       this.logger.error('Error creating user', error.stack);
-      return new InternalServerErrorException('Error creating user');
+      throw new InternalServerErrorException('Error creating user');
     }
   }
 
@@ -124,12 +125,7 @@ export class UsersService {
         }
       }
 
-      if (updateUserDto.roleId) {
-        this.logger.warn(`Role updates are not allowed (user id ${id})`);
-        throw new BadRequestException('Updating role is not allowed');
-      }
-
-      const { roleId, ...userData } = updateUserDto;
+      const { ...userData } = updateUserDto;
 
       const updatedUser = await this.userRepository.save({
         ...user,

@@ -1,6 +1,7 @@
 import { DataSource } from 'typeorm';
 import { User } from '../../users/entities/user.entity';
 import { Role } from '../../roles/entities/role.entity';
+import { RefreshToken } from '../../auth/entities/refresh-token.entity';
 import * as dotenv from 'dotenv';
 import { RoleSeeder } from './role/role.seeder';
 import { UserSeeder } from './user/user.seeder';
@@ -14,7 +15,7 @@ const dataSource = new DataSource({
     username: process.env.DB_USERNAME || 'postgres',
     password: process.env.DB_PASSWORD || 'postgres',
     database: process.env.DB_NAME || 'sana_db',
-    entities: [User, Role],
+    entities: [User, Role, RefreshToken],
     synchronize: false,
 });
 

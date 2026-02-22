@@ -20,7 +20,7 @@ export class User {
     @Column({ length: 255 })
     password: string;
 
-    @Column()
+    @Column({ nullable: true })
     birthDate: Date;
 
     @Column({ default: true })
