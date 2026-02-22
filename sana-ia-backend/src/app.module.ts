@@ -7,6 +7,8 @@ import { UsersModule } from './users/users.module';
 import { RolesModule } from './roles/roles.module';
 import { AuthModule } from './auth/auth.module';
 import { AiModule } from './ai/ai.module';
+import { ConsultationsModule } from './consultations/consultations.module';
+import { ChatMessagesModule } from './chat-messages/chat-messages.module';
 import databaseConfig from './config/database.config';
 
 @Module({
@@ -20,6 +22,8 @@ import databaseConfig from './config/database.config';
     UsersModule,
     RolesModule,
     AuthModule,
+    ConsultationsModule,
+    ChatMessagesModule,
     AiModule,
   ],
   controllers: [AppController],

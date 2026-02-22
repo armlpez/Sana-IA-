@@ -1,0 +1,216 @@
+# Explicación del Schema de Base de Datos y Flujos de SANA
+
+## 📊 Esquema de Base de Datos Actual
+
+El schema define **9 entidades** principales organizadas en capas:
+
+### Capa de Autenticación
+| Entidad | Propósito |
+|---------|-----------|
+| **ROLES** | Define permisos (admin, user, médico) |
+| **USERS** | Usuarios registrados con disclaimer aceptado |
+
+### Capa de Consultas
+| Entidad | Propósito |
+|---------|-----------|
+| **CONSULTATIONS** | Cada sesión de análisis del usuario |
+| **SYMPTOMS** | Síntomas extraídos de la consulta (NLP) |
+| **LAB_RESULTS** | Resultados de laboratorio (OCR) |
+
+### Capa de Diagnóstico
+| Entidad | Propósito |
+|---------|-----------|
+| **DIAGNOSIS** | Resultado del análisis ACR (5 Porqués) |
+| **RECOMMENDATIONS** | Sugerencias generadas |
+| **DISEASES** | Catálogo de enfermedades con CIE-10 |
+| **SPECIALISTS** | Catálogo de especialistas |
+
+---
+
+## 🗂️ Diagrama de Relaciones
+
+```mermaid
+erDiagram
+    ROLES ||--o{ USERS : "tiene"
+    USERS ||--o{ CONSULTATIONS : "crea"
+    USERS ||--o{ LAB_RESULTS : "sube"
+    CONSULTATIONS ||--o{ SYMPTOMS : "contiene"
+    CONSULTATIONS ||--o{ LAB_RESULTS : "referencia"
+    CONSULTATIONS ||--|| DIAGNOSIS : "genera"
+    SYMPTOMS }o--o{ DISEASES : "correlaciona"
+    DIAGNOSIS ||--o{ RECOMMENDATIONS : "incluye"
+    DISEASES ||--o{ SPECIALISTS : "sugiere"
+```
+
+---
+
+## 💬 Propuesta: Historial de Chat
+
+Para implementar un **historial de chat** conversacional, necesitamos agregar una tabla `CHAT_MESSAGES`:
+
+### Nueva Entidad: CHAT_MESSAGES
+
+```mermaid
+erDiagram
+    CONSULTATIONS ||--o{ CHAT_MESSAGES : "contains"
+    
+    CHAT_MESSAGES {
+        uuid id PK
+        uuid consultation_id FK
+        string role "user|assistant|system"
+        text content
+        json metadata "tokens, model, etc"
+        timestamp created_at
+    }
+```
+
+### Estructura propuesta:
+
+| Campo | Tipo | Descripción |
+|-------|------|-------------|
+| [id](file:///c:/Users/arm.lopez/Documents/Sana/Sana-IA-/sana-ia-backend/src/ai/ai.service.ts#73-105) | UUID | Identificador único |
+| `consultation_id` | UUID FK | Referencia a la consulta |
+| `role` | ENUM | `user`, `assistant`, o `system` |
+| `content` | TEXT | El mensaje en sí |
+| `metadata` | JSON | Info adicional (tokens usados, modelo, etc.) |
+| `created_at` | TIMESTAMP | Cuándo se envió |
+
+### Ejemplo de historial guardado:
+
+```json
+[
+  {
+    "id": "msg-001",
+    "consultation_id": "consult-123",
+    "role": "user",
+    "content": "Tengo dolor de cabeza intenso y visión borrosa",
+    "created_at": "2026-02-04T10:00:00Z"
+  },
+  {
+    "id": "msg-002",
+    "consultation_id": "consult-123",
+    "role": "assistant",
+    "content": "{...respuesta JSON del análisis...}",
+    "metadata": { "model": "gemini-2.0-flash", "tokens": 450 },
+    "created_at": "2026-02-04T10:00:02Z"
+  },
+  {
+    "id": "msg-003",
+    "consultation_id": "consult-123",
+    "role": "user",
+    "content": "¿Qué laboratorios me recomiendas?",
+    "created_at": "2026-02-04T10:01:00Z"
+  }
+]
+```
+
+---
+
+## 👤 Flujo de Usuario (Frontend → Backend)
+
+```mermaid
+sequenceDiagram
+    actor U as Usuario
+    participant F as Frontend
+    participant A as Auth API
+    participant AI as AI API
+    participant DB as Database
+    
+    Note over U,DB: 1. REGISTRO Y LOGIN
+    U->>F: Abre la app
+    F->>A: POST /v1/auth/login
+    A->>DB: Valida credenciales
+    DB-->>A: Usuario encontrado
+    A-->>F: { access_token, refresh_token }
+    
+    Note over U,DB: 2. ACEPTAR DISCLAIMER
+    F->>F: Muestra disclaimer legal
+    U->>F: Acepta términos
+    F->>A: PATCH /v1/users/:id { disclaimerAccepted: true }
+    
+    Note over U,DB: 3. CONSULTA DE SÍNTOMAS
+    U->>F: Escribe síntomas
+    F->>AI: POST /ai/analyze { symptoms, treatment, duration }
+    AI->>AI: Construye prompt + System Prompt
+    AI->>AI: Llama a Gemini API
+    AI->>DB: Guarda consulta y diagnóstico
+    AI-->>F: { diagnosis, recommendations, fiveWhysTrace }
+    F-->>U: Muestra resultado con disclaimer
+    
+    Note over U,DB: 4. (FUTURO) SUBIR LABORATORIOS
+    U->>F: Sube imagen de laboratorio
+    F->>AI: POST /ai/ocr { image }
+    AI->>AI: Extrae biomarcadores (OCR)
+    AI->>DB: Guarda LAB_RESULTS
+    AI-->>F: Biomarcadores detectados
+```
+
+---
+
+## ⚙️ Flujo Interno (Procesamiento del Backend)
+
+```mermaid
+flowchart TD
+    subgraph INPUT["📥 Entrada"]
+        A[Usuario envía síntomas] --> B{¿Tipo de input?}
+        B -->|Texto| C[Sanitización]
+        B -->|Voz| D[Speech-to-Text]
+        B -->|Imagen| E[OCR + Extracción]
+    end
+    
+    subgraph PREPROCESSING["🔧 Pre-procesamiento"]
+        C --> F[NLP: Extracción de variables críticas]
+        D --> F
+        E --> G[Detección de Biomarcadores]
+        F --> H[Normalización de síntomas]
+        G --> H
+    end
+    
+    subgraph AI_CORE["🧠 Motor de IA"]
+        H --> I{¿Es Emergencia?}
+        I -->|Sí| J[Respuesta de emergencia inmediata]
+        I -->|No| K[Construir Prompt con 5 Porqués]
+        K --> L[Enviar a Gemini API]
+        L --> M[Recibir respuesta JSON]
+    end
+    
+    subgraph POSTPROCESSING["📤 Post-procesamiento"]
+        M --> N[Validar con Zod Schema]
+        N -->|Válido| O[Guardar en DB]
+        N -->|Inválido| P[Fallback: Sugerir Medicina General]
+        J --> O
+        P --> O
+        O --> Q[Generar PDF opcional]
+        Q --> R[Retornar respuesta al usuario]
+    end
+```
+
+---
+
+## 🔄 Ciclo de Vida de una Consulta
+
+| Paso | Entidad | Acción |
+|------|---------|--------|
+| 1 | `USERS` | Usuario autenticado con disclaimer aceptado |
+| 2 | `CONSULTATIONS` | Se crea con `status: 'pending'` |
+| 3 | `SYMPTOMS` | Se extraen del `raw_input` via NLP |
+| 4 | `CONSULTATIONS` | Cambia a `status: 'processing'` |
+| 5 | `DIAGNOSIS` | Se genera con el análisis ACR |
+| 6 | `RECOMMENDATIONS` | Se crean basadas en el diagnóstico |
+| 7 | `CONSULTATIONS` | Cambia a `status: 'completed'` |
+| 8 | `CHAT_MESSAGES` | Se guarda el intercambio (propuesto) |
+
+---
+
+## 📋 Resumen de Implementación Pendiente
+
+| Funcionalidad | Estado | Prioridad |
+|---------------|--------|-----------|
+| Autenticación (Users, Roles) | ✅ Implementado | - |
+| Endpoint /ai/analyze | ✅ Implementado | - |
+| Persistencia de Consultations | ⏳ Pendiente | 🔴 Alta |
+| Historial de Chat (CHAT_MESSAGES) | ⏳ Pendiente | 🔴 Alta |
+| OCR para LAB_RESULTS | ⏳ Pendiente | 🔴 Alta |
+| Catálogo de DISEASES con CIE-10 | ⏳ Pendiente | 🟡 Media |
+| Generación de PDF | ⏳ Pendiente | 🟡 Media |
+| Speech-to-Text | ⏳ Pendiente | 🟢 Baja |

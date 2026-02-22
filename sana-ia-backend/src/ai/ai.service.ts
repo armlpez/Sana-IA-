@@ -1,7 +1,8 @@
 import { Injectable, Logger, InternalServerErrorException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { GoogleGenerativeAI, GenerativeModel } from '@google/generative-ai';
-import { AnalyzeInputDto, AnalyzeResponseDto } from './dto';
+import { AnalyzeInputDto } from './dto/analyze-input.dto';
+import { AnalyzeResponseDto } from './dto/analyze-response.dto';
 import { AiResponseSchema, AiResponseType } from './schemas/ai-response.schema';
 import { SANA_SYSTEM_PROMPT, buildAnalysisPrompt } from './prompts/system-prompt';
 
