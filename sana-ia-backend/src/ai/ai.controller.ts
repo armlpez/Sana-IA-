@@ -18,7 +18,7 @@ import { ChatInputDto } from '../consultations/dto/chat-input.dto';
 import { ChatResponseDto } from '../consultations/dto/chat-response.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
-@Controller('ai')
+@Controller({ path: 'ai', version: '1' })
 @UseGuards(JwtAuthGuard)
 export class AiController {
     constructor(
