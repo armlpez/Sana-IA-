@@ -10,12 +10,13 @@ import { AiModule } from './ai/ai.module';
 import { ConsultationsModule } from './consultations/consultations.module';
 import { ChatMessagesModule } from './chat-messages/chat-messages.module';
 import databaseConfig from './config/database.config';
+import aiModelsConfig from './ai/config/model-tiers.config';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      load: [databaseConfig],
+      load: [databaseConfig, aiModelsConfig],
       envFilePath: '.env',
     }),
     DatabaseModule,
