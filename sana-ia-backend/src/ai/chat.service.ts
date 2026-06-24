@@ -1,8 +1,6 @@
-import { Injectable, Logger, InternalServerErrorException, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { ConfigService } from '@nestjs/config';
-import { GoogleGenerativeAI, GenerativeModel } from '@google/generative-ai';
 import { Consultation } from '../consultations/entities/consultation.entity';
 import { ConsultationStatus } from '../consultations/enums/consultation-status.enum';
 import { ChatMessage } from '../chat-messages/entities/chat-message.entity';
@@ -10,52 +8,32 @@ import { MessageRole } from '../chat-messages/enums/message-role.enum';
 import { ChatInputDto } from '../consultations/dto/chat-input.dto';
 import { ChatResponseDto } from '../consultations/dto/chat-response.dto';
 import { SANA_CHAT_SYSTEM_PROMPT } from './prompts/chat-system-prompt';
+import { GeminiClientService } from './services/gemini-client.service';
+import { SafeFallbackBuilder, ChatFallbackShape } from './utils/safe-fallback.builder';
+import { GeminiErrorKind } from './utils/gemini-error-kind';
+import { classifyGeminiError } from './utils/error-classifier';
+import { tierForStatus } from './config/model-tiers.config';
+import { AppException } from '../common/exceptions/app-exception';
+
+/** Maximum characters from the free-form summary blob injected into the prompt. */
+const PROMPT_SUMMARY_MAX_CHARS = parseInt(process.env.PROMPT_SUMMARY_MAX_CHARS ?? '2000', 10);
 
 @Injectable()
 export class ChatService {
     private readonly logger = new Logger(ChatService.name);
-    private readonly chatModel: GenerativeModel;
-    private readonly modelName: string;
 
     constructor(
         @InjectRepository(Consultation)
         private readonly consultationRepo: Repository<Consultation>,
         @InjectRepository(ChatMessage)
         private readonly chatMessageRepo: Repository<ChatMessage>,
-        private readonly configService: ConfigService,
-    ) {
-        const apiKey = this.configService.get<string>('GEMINI_API_KEY');
-        this.modelName = this.configService.get<string>('GEMINI_MODEL') || 'gemini-2.0-flash-lite';
-
-        if (!apiKey) {
-            this.logger.warn('GEMINI_API_KEY no configurada. El chat no funcionará.');
-            return;
-        }
-
-        try {
-            const genAI = new GoogleGenerativeAI(apiKey);
-            this.chatModel = genAI.getGenerativeModel({
-                model: this.modelName,
-                systemInstruction: SANA_CHAT_SYSTEM_PROMPT,
-                generationConfig: {
-                    responseMimeType: 'application/json',
-                    temperature: 0.4,
-                },
-            });
-            this.logger.log(`ChatService initialized with model: ${this.modelName}`);
-        } catch (error) {
-            this.logger.error(`Error initializing ChatService: ${error.message}`);
-        }
-    }
+        private readonly geminiClient: GeminiClientService,
+    ) {}
 
     async sendMessage(userId: number, dto: ChatInputDto): Promise<ChatResponseDto> {
-        if (!this.chatModel) {
-            throw new InternalServerErrorException('El servicio de chat no está configurado (Falta GEMINI_API_KEY)');
-        }
-
         const startTime = Date.now();
 
-        // 1. Obtener o crear la consulta
+        // 1. Find or create the consultation
         let consultation: Consultation;
         if (dto.conversationId) {
             const found = await this.consultationRepo.findOne({
@@ -74,7 +52,7 @@ export class ChatService {
             this.logger.log(`New consultation created: ${consultation.id} for user: ${userId}`);
         }
 
-        // 2. Guardar el mensaje del usuario
+        // 2. Save the user message
         const userMessage = this.chatMessageRepo.create({
             consultationId: consultation.id,
             role: MessageRole.USER,
@@ -82,69 +60,79 @@ export class ChatService {
         });
         await this.chatMessageRepo.save(userMessage);
 
-        // 3. Construir el prompt con contexto
+        // 3. Build prompt with bounded context
+        const tier = tierForStatus(consultation.status);
         const prompt = this.buildPromptWithContext(dto.message, consultation);
 
-        // 4. Llamar a Gemini
+        // 4. Call Gemini via resilience layer
+        let rawText: string;
         try {
-            const result = await this.chatModel.generateContent(prompt);
-            const response = result.response;
-            const rawText = response.text();
-            const responseTimeMs = Date.now() - startTime;
+            rawText = await this.geminiClient.generateWithResilience(tier, prompt);
+        } catch (err: unknown) {
+            const kind = err instanceof AppException
+                ? this.kindFromAppException(err)
+                : classifyGeminiError(err);
 
-            this.logger.debug(`Raw chat response: ${rawText}`);
-
-            // 5. Parsear la respuesta de la IA
-            const parsed = this.parseResponse(rawText);
-
-            // 6. Guardar el mensaje de la IA
-            const assistantMessage = this.chatMessageRepo.create({
-                consultationId: consultation.id,
-                role: MessageRole.ASSISTANT,
-                content: parsed.message,
-                metadata: {
-                    model: this.modelName,
-                    tokensUsed: response.usageMetadata?.totalTokenCount ?? undefined,
-                    responseTimeMs,
-                },
-            });
-            await this.chatMessageRepo.save(assistantMessage);
-
-            // 7. Actualizar la consulta con los datos extraídos
-            await this.updateConsultation(consultation, parsed);
-
-            this.logger.log(`Chat message processed for consultation ${consultation.id} | Status: ${parsed.status}`);
-
-            // 8. Construir el summary para la respuesta
-            const responseSummary = parsed.summary
-                ? (typeof parsed.summary === 'string' ? { text: parsed.summary } : parsed.summary)
-                : consultation.summary;
-
-            return {
-                conversationId: consultation.id,
-                message: parsed.message,
-                summary: responseSummary || null,
-                status: parsed.status,
-                extractedData: parsed.extractedData,
-                diagnosis: parsed.diagnosis || null,
-            };
-        } catch (error) {
-            this.logger.error(`Error in chat: ${error.message}`, error.stack);
-
-            // Guardar respuesta de error como mensaje de la IA
-            const errorMessage = this.chatMessageRepo.create({
-                consultationId: consultation.id,
-                role: MessageRole.ASSISTANT,
-                content: 'Lo siento, hubo un problema procesando tu mensaje. ¿Podrías intentar de nuevo?',
-                metadata: {
-                    model: this.modelName,
-                    responseTimeMs: Date.now() - startTime,
-                },
-            });
-            await this.chatMessageRepo.save(errorMessage);
-
-            throw new InternalServerErrorException('Error al procesar el mensaje');
+            return this.handleChatFailure(consultation, kind, startTime);
         }
+
+        const responseTimeMs = Date.now() - startTime;
+
+        // 5. Parse the AI response
+        let parsed: ReturnType<typeof this.parseResponse>;
+        try {
+            parsed = this.parseResponse(rawText);
+        } catch (parseErr: unknown) {
+            // Log only sanitized metadata — NEVER log rawText (W-02 resolved)
+            this.logger.error('Failed to parse chat response', {
+                consultationId: consultation.id,
+                responseTimeMs,
+            });
+            return this.handleChatFailure(consultation, GeminiErrorKind.PARSE, startTime);
+        }
+
+        // 6. Latch emergencyDetected when the model signals an emergency (monotonic flag)
+        const emergencyThisTurn =
+            parsed.diagnosis != null &&
+            typeof parsed.diagnosis === 'object' &&
+            (parsed.diagnosis as Record<string, unknown>)['isEmergency'] === true;
+
+        // 7. Persist assistant message + consultation update in parallel
+        const assistantMsg = this.chatMessageRepo.create({
+            consultationId: consultation.id,
+            role: MessageRole.ASSISTANT,
+            content: parsed.message,
+            metadata: {
+                responseTimeMs,
+            },
+        });
+
+        const updatePayload = this.buildConsultationUpdate(consultation, parsed, emergencyThisTurn);
+
+        await Promise.all([
+            this.chatMessageRepo.save(assistantMsg),
+            Object.keys(updatePayload).length > 0
+                ? this.consultationRepo.update(consultation.id, updatePayload)
+                : Promise.resolve(),
+        ]);
+
+        this.logger.log(
+            `Chat message processed — consultation: ${consultation.id}, status: ${parsed.status}, emergency: ${emergencyThisTurn}, elapsedMs: ${responseTimeMs}`,
+        );
+
+        // 8. Build summary for the response
+        const responseSummary = parsed.summary
+            ? (typeof parsed.summary === 'string' ? { text: parsed.summary } : parsed.summary)
+            : consultation.summary;
+
+        return {
+            conversationId: consultation.id,
+            message: parsed.message,
+            summary: responseSummary ?? null,
+            status: parsed.status,
+            extractedData: parsed.extractedData,
+            diagnosis: parsed.diagnosis ?? null,
+        };
     }
 
     async getConversation(id: number, userId: number): Promise<Consultation> {
@@ -169,13 +157,78 @@ export class ChatService {
         });
     }
 
-    private buildPromptWithContext(message: string, consultation: Consultation): string {
-        let prompt = '';
+    // ---------------------------------------------------------------------------
+    // Private helpers
+    // ---------------------------------------------------------------------------
 
-        // Agregar el summary anterior como contexto
+    /**
+     * Handles a failed Gemini call on the chat path.
+     *
+     * Saves a fallback assistant message and returns a 200 with a clinically-safe body.
+     * Never throws (so the patient always gets a response, not a 500).
+     * PHI is NEVER logged (W-02 resolved for chat).
+     */
+    private async handleChatFailure(
+        consultation: Consultation,
+        kind: GeminiErrorKind,
+        startTime: number,
+    ): Promise<ChatResponseDto> {
+        const responseTimeMs = Date.now() - startTime;
+
+        const fallback: ChatFallbackShape = SafeFallbackBuilder.forChat({
+            emergencyDetected: consultation.emergencyDetected,
+            kind,
+        });
+
+        // Log only sanitized metadata — NEVER log rawText or patient content
+        this.logger.warn('Chat fallback triggered', {
+            consultationId: consultation.id,
+            errorKind: kind,
+            priorEmergency: consultation.emergencyDetected,
+            responseTimeMs,
+        });
+
+        // Save the fallback message so the conversation record is complete
+        const assistantMsg = this.chatMessageRepo.create({
+            consultationId: consultation.id,
+            role: MessageRole.ASSISTANT,
+            content: fallback.message,
+            metadata: {
+                responseTimeMs,
+            },
+        });
+        await this.chatMessageRepo.save(assistantMsg);
+
+        return {
+            conversationId: consultation.id,
+            message: fallback.message,
+            summary: consultation.summary ?? null,
+            status: consultation.status,
+            extractedData: fallback.extractedData,
+            diagnosis: fallback.diagnosis,
+        };
+    }
+
+    /**
+     * Builds prompt with bounded consultation context.
+     *
+     * The free-form summary blob is capped at PROMPT_SUMMARY_MAX_CHARS keeping
+     * the TAIL (most recent state). Structured fields are injected separately in full
+     * because they are short and clinically load-bearing.
+     */
+    private buildPromptWithContext(message: string, consultation: Consultation): string {
+        let prompt = SANA_CHAT_SYSTEM_PROMPT + '\n\n';
+
         if (consultation.summary) {
-            prompt += `[Contexto previo de la conversación]\n`;
-            prompt += `Resumen: ${JSON.stringify(consultation.summary)}\n`;
+            const summaryStr = typeof consultation.summary === 'string'
+                ? consultation.summary
+                : JSON.stringify(consultation.summary);
+
+            const bounded = summaryStr.length > PROMPT_SUMMARY_MAX_CHARS
+                ? '[...contexto truncado]\n' + summaryStr.slice(-PROMPT_SUMMARY_MAX_CHARS)
+                : summaryStr;
+
+            prompt += `[Contexto previo de la conversación]\nResumen: ${bounded}\n`;
 
             if (consultation.extractedSymptoms) {
                 prompt += `Síntomas detectados: ${consultation.extractedSymptoms}\n`;
@@ -187,7 +240,7 @@ export class ChatService {
                 prompt += `Duración reportada: ${consultation.extractedDuration}\n`;
             }
 
-            prompt += `\n`;
+            prompt += '\n';
         }
 
         prompt += `[Mensaje del paciente]\n${message}`;
@@ -195,64 +248,63 @@ export class ChatService {
         return prompt;
     }
 
+    /**
+     * Parses the raw JSON from the model.
+     * Throws on parse error so the caller can route to handleChatFailure.
+     * rawText is NEVER assigned to the message field (W-02 resolved — kills chat.service.ts:235 bug).
+     */
     private parseResponse(rawText: string): {
         message: string;
         extractedData: { symptoms: string | null; treatment: string | null; duration: string | null };
-        summary: Record<string, any> | null;
+        summary: Record<string, unknown> | null;
         status: string;
-        diagnosis: Record<string, any> | null;
+        diagnosis: Record<string, unknown> | null;
     } {
-        try {
-            let cleanedText = rawText.trim();
-            if (cleanedText.startsWith('```json')) {
-                cleanedText = cleanedText.replace(/^```json\n?/, '').replace(/\n?```$/, '');
-            } else if (cleanedText.startsWith('```')) {
-                cleanedText = cleanedText.replace(/^```\n?/, '').replace(/\n?```$/, '');
-            }
-
-            const parsed = JSON.parse(cleanedText);
-
-            const summary = parsed.summary
-                ? (typeof parsed.summary === 'string' ? { text: parsed.summary } : parsed.summary)
-                : null;
-
-            return {
-                message: parsed.message || 'No pude generar una respuesta.',
-                extractedData: {
-                    symptoms: parsed.extractedData?.symptoms || null,
-                    treatment: parsed.extractedData?.treatment || null,
-                    duration: parsed.extractedData?.duration || null,
-                },
-                summary,
-                status: parsed.status || 'collecting',
-                diagnosis: parsed.diagnosis || null,
-            };
-        } catch (error) {
-            this.logger.error(`Failed to parse chat response: ${error.message}`);
-            this.logger.debug(`Raw text: ${rawText}`);
-
-            return {
-                message: rawText || 'No pude procesar la respuesta.',
-                extractedData: { symptoms: null, treatment: null, duration: null },
-                summary: null,
-                status: 'collecting',
-                diagnosis: null,
-            };
+        let cleaned = rawText.trim();
+        if (cleaned.startsWith('```json')) {
+            cleaned = cleaned.replace(/^```json\n?/, '').replace(/\n?```$/, '');
+        } else if (cleaned.startsWith('```')) {
+            cleaned = cleaned.replace(/^```\n?/, '').replace(/\n?```$/, '');
         }
+
+        const data = JSON.parse(cleaned); // throws if invalid JSON — caught by caller
+
+        const summary = data.summary
+            ? (typeof data.summary === 'string' ? { text: data.summary } : data.summary)
+            : null;
+
+        return {
+            message: typeof data.message === 'string' && data.message.length > 0
+                ? data.message
+                : 'No pude generar una respuesta.',
+            extractedData: {
+                symptoms: data.extractedData?.symptoms ?? null,
+                treatment: data.extractedData?.treatment ?? null,
+                duration: data.extractedData?.duration ?? null,
+            },
+            summary,
+            status: data.status ?? 'collecting',
+            diagnosis: data.diagnosis ?? null,
+        };
     }
 
-    private async updateConsultation(
+    /**
+     * Builds the Consultation update payload for the current turn.
+     *
+     * Latches emergencyDetected to true when this turn signals an emergency.
+     * Never clears it to false (monotonic per design decision 1).
+     */
+    private buildConsultationUpdate(
         consultation: Consultation,
         parsed: {
             extractedData: { symptoms: string | null; treatment: string | null; duration: string | null };
-            summary: Record<string, any> | null;
+            summary: Record<string, unknown> | null;
             status: string;
-            diagnosis: Record<string, any> | null;
         },
-    ): Promise<void> {
+        emergencyThisTurn: boolean,
+    ): Partial<Consultation> {
         const updates: Partial<Consultation> = {};
 
-        // Actualizar campos extraídos (solo si tienen valor nuevo)
         if (parsed.extractedData.symptoms) {
             updates.extractedSymptoms = parsed.extractedData.symptoms;
         }
@@ -263,25 +315,39 @@ export class ChatService {
             updates.extractedDuration = parsed.extractedData.duration;
         }
 
-        // Actualizar summary
         if (parsed.summary) {
             updates.summary = parsed.summary;
         }
 
-        // Actualizar status
         if (parsed.status === 'completed') {
             updates.status = ConsultationStatus.COMPLETED;
         } else if (parsed.status === 'analyzing') {
             updates.status = ConsultationStatus.ANALYZING;
         }
 
-        // Generar título automático si no existe
         if (!consultation.title && parsed.extractedData.symptoms) {
             updates.title = `Consulta: ${parsed.extractedData.symptoms.substring(0, 100)}`;
         }
 
-        if (Object.keys(updates).length > 0) {
-            await this.consultationRepo.update(consultation.id, updates);
+        // Latch: only write true, never write false
+        if (emergencyThisTurn && !consultation.emergencyDetected) {
+            updates.emergencyDetected = true;
+        }
+
+        return updates;
+    }
+
+    /**
+     * Maps an AppException back to the GeminiErrorKind that caused it,
+     * for use in the fallback path.
+     */
+    private kindFromAppException(ex: AppException): GeminiErrorKind {
+        switch (ex.errorCode) {
+            case 'ERR_AI_002': return GeminiErrorKind.TIMEOUT;
+            case 'ERR_AI_003': return GeminiErrorKind.RATE_LIMITED;
+            case 'ERR_AI_004': return GeminiErrorKind.UNAVAILABLE;
+            case 'ERR_AI_005': return GeminiErrorKind.PARSE;
+            default:            return GeminiErrorKind.UNKNOWN;
         }
     }
 }

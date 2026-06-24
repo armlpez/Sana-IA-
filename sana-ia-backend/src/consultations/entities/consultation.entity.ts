@@ -11,6 +11,7 @@ import {
 import { User } from '../../users/entities/user.entity';
 import { ChatMessage } from '../../chat-messages/entities/chat-message.entity';
 import { ConsultationStatus } from '../enums/consultation-status.enum';
+import { OcrResult } from '../../ocr/entities/ocr-result.entity';
 
 @Entity('consultation')
 export class Consultation {
@@ -46,10 +47,21 @@ export class Consultation {
     })
     status: ConsultationStatus;
 
+    /**
+     * Latched emergency flag — once set to true by a successful AI parse,
+     * it is NEVER cleared back to false. Used by SafeFallbackBuilder to
+     * preserve prior emergency signals even when the current AI turn fails.
+     */
+    @Column({ type: 'boolean', default: false, nullable: true })
+    emergencyDetected: boolean;
+
     @OneToMany(() => ChatMessage, (message) => message.consultation, {
         cascade: true,
     })
     messages: ChatMessage[];
+
+    @OneToMany(() => OcrResult, (ocr) => ocr.consultation)
+    ocrResults: OcrResult[];
 
     @CreateDateColumn()
     createdAt: Date;

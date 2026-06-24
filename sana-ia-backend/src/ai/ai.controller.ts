@@ -10,6 +10,7 @@ import {
     HttpStatus,
     Request,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { AiService } from './ai.service';
 import { ChatService } from './chat.service';
 import { AnalyzeInputDto } from './dto/analyze-input.dto';
@@ -34,6 +35,7 @@ export class AiController {
     }
 
     // Nuevo: enviar mensaje al chat conversacional
+    @Throttle({ chat: {} })
     @Post('chat')
     @HttpCode(HttpStatus.OK)
     async sendChatMessage(
