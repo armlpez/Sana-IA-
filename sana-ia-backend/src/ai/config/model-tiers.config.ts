@@ -39,14 +39,16 @@ export function tierForStatus(status: ConsultationStatus): ModelTier {
  * Access via ConfigService.get('aiModels.<key>')
  */
 export default registerAs('aiModels', () => ({
-    // Model names per tier
-    modelCollecting: process.env.GEMINI_MODEL_COLLECTING ?? 'gemini-2.0-flash-lite',
-    modelAnalyzing: process.env.GEMINI_MODEL_ANALYZING ?? 'gemini-2.0-flash',
-    modelCompleted: process.env.GEMINI_MODEL_COMPLETED ?? 'gemini-1.5-pro',
+    // Model names per tier (using gemini-2.5-flash)
+    modelCollecting: process.env.GEMINI_MODEL_COLLECTING ?? 'gemini-2.5-flash',
+    modelAnalyzing: process.env.GEMINI_MODEL_ANALYZING ?? 'gemini-2.5-flash',
+    modelCompleted: process.env.GEMINI_MODEL_COMPLETED ?? 'gemini-2.5-flash',
 
     // Timeout per tier group (ms)
-    timeoutFastMs: parseInt(process.env.GEMINI_TIMEOUT_FAST_MS ?? '8000', 10),
-    timeoutSlowMs: parseInt(process.env.GEMINI_TIMEOUT_SLOW_MS ?? '25000', 10),
+    // TESTING: Increased to accommodate Gemini Vision OCR processing (8-15 seconds typical)
+    // PRODUCTION: Revert to timeoutFastMs: 8000 if quota is optimized
+    timeoutFastMs: parseInt(process.env.GEMINI_TIMEOUT_FAST_MS ?? '20000', 10),
+    timeoutSlowMs: parseInt(process.env.GEMINI_TIMEOUT_SLOW_MS ?? '30000', 10),
 
     // Retry policy (applied only to transient errors: 429, 503)
     retryMax: parseInt(process.env.GEMINI_RETRY_MAX ?? '2', 10),

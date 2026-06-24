@@ -11,6 +11,7 @@ import {
 import { User } from '../../users/entities/user.entity';
 import { ChatMessage } from '../../chat-messages/entities/chat-message.entity';
 import { ConsultationStatus } from '../enums/consultation-status.enum';
+import { OcrResult } from '../../ocr/entities/ocr-result.entity';
 
 @Entity('consultation')
 export class Consultation {
@@ -58,6 +59,9 @@ export class Consultation {
         cascade: true,
     })
     messages: ChatMessage[];
+
+    @OneToMany(() => OcrResult, (ocr) => ocr.consultation)
+    ocrResults: OcrResult[];
 
     @CreateDateColumn()
     createdAt: Date;
