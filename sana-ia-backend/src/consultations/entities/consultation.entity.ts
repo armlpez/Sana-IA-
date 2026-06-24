@@ -46,6 +46,14 @@ export class Consultation {
     })
     status: ConsultationStatus;
 
+    /**
+     * Latched emergency flag — once set to true by a successful AI parse,
+     * it is NEVER cleared back to false. Used by SafeFallbackBuilder to
+     * preserve prior emergency signals even when the current AI turn fails.
+     */
+    @Column({ type: 'boolean', default: false, nullable: true })
+    emergencyDetected: boolean;
+
     @OneToMany(() => ChatMessage, (message) => message.consultation, {
         cascade: true,
     })
