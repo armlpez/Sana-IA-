@@ -4,6 +4,7 @@ import { HttpStatus } from '@nestjs/common';
 import {
     GoogleGenerativeAI,
     GenerativeModel,
+    Part
 } from '@google/generative-ai';
 import { GeminiErrorKind } from '../utils/gemini-error-kind';
 import { classifyGeminiError } from '../utils/error-classifier';
@@ -83,7 +84,7 @@ export class GeminiClientService {
      * Returns the raw text string from the model response on success.
      * Throws AppException on terminal (non-retryable or exhausted) failure.
      */
-    async generateWithResilience(tier: ModelTier, prompt: string): Promise<string> {
+    async generateWithResilience(tier: ModelTier, prompt: string | Part[]): Promise<string> {
         const modelName = this.resolveModelName(tier);
         const timeoutMs = this.resolveTimeout(tier);
         const model = this.getOrCreateModel(modelName);
@@ -167,7 +168,7 @@ export class GeminiClientService {
      */
     private async callWithTimeout(
         model: GenerativeModel,
-        prompt: string,
+        prompt: string | Part[],
         timeoutMs: number,
     ): Promise<string> {
         const timeoutError: Record<string, unknown> = {
