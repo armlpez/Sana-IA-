@@ -38,6 +38,7 @@ export class ChatService {
         if (dto.conversationId) {
             const found = await this.consultationRepo.findOne({
                 where: { id: dto.conversationId, userId },
+                relations: ['ocrResults']
             });
             if (!found) {
                 throw new NotFoundException('Conversación no encontrada');
@@ -72,6 +73,15 @@ export class ChatService {
             const kind = err instanceof AppException
                 ? this.kindFromAppException(err)
                 : classifyGeminiError(err);
+
+            // Log detailed error info server-side
+            this.logger.error('Gemini call failed in chat', {
+                consultationId: consultation.id,
+                userId: consultation.userId,
+                errorKind: kind,
+                errorType: err instanceof Error ? err.constructor.name : typeof err,
+                errorMessage: err instanceof Error ? err.message : String(err),
+            });
 
             return this.handleChatFailure(consultation, kind, startTime);
         }
@@ -238,6 +248,24 @@ export class ChatService {
             }
             if (consultation.extractedDuration) {
                 prompt += `Duración reportada: ${consultation.extractedDuration}\n`;
+            }
+
+            // Inyectar resultados de OCR (Data Hard) si existen
+            if (consultation.ocrResults && consultation.ocrResults.length > 0) {
+                const completedResults = consultation.ocrResults.filter(
+                    r => r.status === 'completed' && r.extractedData?.biomarkers?.length > 0
+                );
+                
+                if (completedResults.length > 0) {
+                    prompt += `\n[RESULTADOS CLÍNICOS DEL PACIENTE (DATA HARD)]\n`;
+                    prompt += `Los siguientes biomarcadores fueron extraídos de exámenes de laboratorio:\n`;
+                    for (const result of completedResults) {
+                        for (const b of result.extractedData.biomarkers) {
+                            prompt += `- ${b.name}: ${b.value} ${b.unit || ''} (${b.flag || 'desconocido'})\n`;
+                        }
+                    }
+                    prompt += `*Instrucción Obligatoria: Cruza esta evidencia científica de laboratorio con los síntomas reportados para afinar tu diagnóstico usando los 5 Porqués.*\n`;
+                }
             }
 
             prompt += '\n';
