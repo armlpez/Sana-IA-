@@ -7,6 +7,7 @@ import {
   BadRequestException,
   HttpException,
 } from '@nestjs/common';
+import { ThrottlerException } from '@nestjs/throttler';
 import { Request, Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { AppException } from '../exceptions/app-exception';
@@ -31,6 +32,24 @@ export class GlobalExceptionFilter implements ExceptionFilter {
 
     const requestId = this.getOrCreateRequestId(request);
     const { path, method } = request;
+
+    // ThrottlerException — safe 429 with Retry-After header
+    if (exception instanceof ThrottlerException) {
+      this.logger.warn(
+        `[${requestId}] [${method} ${path}] [${ErrorCode.AI_RATE_LIMITED}] Rate limit exceeded`,
+      );
+      const publicResponse = ErrorResponseBuilder.buildPublicResponse(
+        429,
+        'Demasiadas solicitudes, esperá un momento.',
+        ErrorCode.AI_RATE_LIMITED,
+        requestId,
+      );
+      response
+        .status(429)
+        .setHeader('Retry-After', '60')
+        .json(publicResponse);
+      return;
+    }
 
     let statusCode: number;
     let errorCode: ErrorCode;
