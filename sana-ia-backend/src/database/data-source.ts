@@ -13,7 +13,7 @@ export const dataSourceOptions: DataSourceOptions = {
     database: process.env.DB_NAME || 'sana_db',
     entities: ['dist/**/*.entity.js'],
     migrations: ['dist/database/migrations/*.js'],
-    synchronize: true, // Always false for migrations
+    synchronize: false, // Always false: the CLI applies schema via migrations, never auto-sync
     logging: process.env.NODE_ENV === 'development',
 };
 

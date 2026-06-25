@@ -11,6 +11,7 @@ import { RolesModule } from './roles/roles.module';
 import { AuthModule } from './auth/auth.module';
 import { AiModule } from './ai/ai.module';
 import { OcrModule } from './ocr/ocr.module';
+import { ReportsModule } from './reports/reports.module';
 import { ConsultationsModule } from './consultations/consultations.module';
 import { ChatMessagesModule } from './chat-messages/chat-messages.module';
 import { UserThrottlerGuard } from './common/guards/user-throttler.guard';
@@ -62,6 +63,7 @@ import aiModelsConfig from './ai/config/model-tiers.config';
     ChatMessagesModule,
     AiModule,
     OcrModule,
+    ReportsModule,
   ],
   controllers: [AppController],
   providers: [

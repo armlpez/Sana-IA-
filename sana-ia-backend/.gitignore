@@ -52,3 +52,9 @@ tsconfig.tsbuildinfo
 
 # --- Docker ---
 .dockerignore
+
+# --- Runtime uploads (PHI — never commit) ---
+uploads/
+
+# --- Local scratch / throwaway scripts ---
+scratch/

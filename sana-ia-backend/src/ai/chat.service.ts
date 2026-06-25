@@ -2,6 +2,7 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Consultation } from '../consultations/entities/consultation.entity';
+import { Diagnosis } from '../consultations/entities/diagnosis.entity';
 import { ConsultationStatus } from '../consultations/enums/consultation-status.enum';
 import { ChatMessage } from '../chat-messages/entities/chat-message.entity';
 import { MessageRole } from '../chat-messages/enums/message-role.enum';
@@ -28,6 +29,8 @@ export class ChatService {
         @InjectRepository(ChatMessage)
         private readonly chatMessageRepo: Repository<ChatMessage>,
         private readonly geminiClient: GeminiClientService,
+        @InjectRepository(Diagnosis)
+        private readonly diagnosisRepo: Repository<Diagnosis>,
     ) {}
 
     async sendMessage(userId: number, dto: ChatInputDto): Promise<ChatResponseDto> {
@@ -119,12 +122,24 @@ export class ChatService {
 
         const updatePayload = this.buildConsultationUpdate(consultation, parsed, emergencyThisTurn);
 
-        await Promise.all([
-            this.chatMessageRepo.save(assistantMsg),
-            Object.keys(updatePayload).length > 0
-                ? this.consultationRepo.update(consultation.id, updatePayload)
-                : Promise.resolve(),
-        ]);
+        const writes: Promise<unknown>[] = [this.chatMessageRepo.save(assistantMsg)];
+
+        if (Object.keys(updatePayload).length > 0) {
+            writes.push(this.consultationRepo.update(consultation.id, updatePayload));
+        }
+
+        // Persist the diagnosis as an immutable, append-only clinical record.
+        // One row per emitted diagnosis — never updated, preserving the audit trail.
+        if (parsed.diagnosis) {
+            writes.push(this.diagnosisRepo.save(this.buildDiagnosisRecord(consultation, parsed)));
+        } else if (parsed.status === 'completed') {
+            // Defensive observability: a completed consultation should carry a diagnosis.
+            this.logger.warn(
+                `Consultation ${consultation.id} reached 'completed' without a diagnosis payload`,
+            );
+        }
+
+        await Promise.all(writes);
 
         this.logger.log(
             `Chat message processed — consultation: ${consultation.id}, status: ${parsed.status}, emergency: ${emergencyThisTurn}, elapsedMs: ${responseTimeMs}`,
@@ -363,6 +378,40 @@ export class ChatService {
         }
 
         return updates;
+    }
+
+    /**
+     * Builds an immutable Diagnosis record from the parsed AI output.
+     *
+     * Promotes the clinically load-bearing fields (isEmergency, specialist,
+     * confidence) to columns while keeping the full payload verbatim for fidelity.
+     */
+    private buildDiagnosisRecord(
+        consultation: Consultation,
+        parsed: { status: string; diagnosis: Record<string, unknown> | null },
+    ): Diagnosis {
+        const d = parsed.diagnosis ?? {};
+
+        return this.diagnosisRepo.create({
+            consultationId: consultation.id,
+            userId: consultation.userId,
+            statusAtEmit: this.toConsultationStatus(parsed.status),
+            isEmergency: d['isEmergency'] === true,
+            suggestedSpecialist:
+                typeof d['suggestedSpecialist'] === 'string' ? (d['suggestedSpecialist'] as string) : null,
+            confidenceLevel:
+                typeof d['confidenceLevel'] === 'number' ? (d['confidenceLevel'] as number) : null,
+            payload: parsed.diagnosis as Record<string, any>,
+        });
+    }
+
+    /** Maps the loose AI status string to the ConsultationStatus enum. */
+    private toConsultationStatus(status: string): ConsultationStatus {
+        switch (status) {
+            case 'completed': return ConsultationStatus.COMPLETED;
+            case 'analyzing': return ConsultationStatus.ANALYZING;
+            default:          return ConsultationStatus.COLLECTING;
+        }
     }
 
     /**

@@ -2,13 +2,14 @@ import { ChatService } from './chat.service';
 import { Repository } from 'typeorm';
 import { Consultation } from '../consultations/entities/consultation.entity';
 import { ChatMessage } from '../chat-messages/entities/chat-message.entity';
+import { Diagnosis } from '../consultations/entities/diagnosis.entity';
 
 describe('ChatService — Emergency Latch', () => {
     let chatService: ChatService;
     let consultationRepo: Repository<Consultation>;
     let chatMessageRepo: Repository<ChatMessage>;
     let geminiClientService: any;
-    let aiService: any;
+    let diagnosisRepo: Repository<Diagnosis>;
 
     beforeEach(() => {
         consultationRepo = {
@@ -27,13 +28,16 @@ describe('ChatService — Emergency Latch', () => {
             generateWithResilience: jest.fn(),
         };
 
-        aiService = {};
+        diagnosisRepo = {
+            create: jest.fn((entity) => entity),
+            save: jest.fn(),
+        } as any;
 
         chatService = new ChatService(
             consultationRepo,
             chatMessageRepo,
             geminiClientService,
-            aiService,
+            diagnosisRepo,
         );
     });
 
@@ -69,6 +73,74 @@ describe('ChatService — Emergency Latch', () => {
             1,
             expect.objectContaining({ emergencyDetected: true })
         );
+    });
+
+    it('should persist the diagnosis as an append-only record when present', async () => {
+        const consultation = {
+            id: 7,
+            userId: 100,
+            status: 'analyzing',
+            emergencyDetected: false,
+            summary: '{}',
+        };
+
+        (consultationRepo.findOne as jest.Mock).mockResolvedValue(consultation);
+        (chatMessageRepo.create as jest.Mock).mockReturnValue({});
+        (chatMessageRepo.save as jest.Mock).mockResolvedValue({});
+
+        geminiClientService.generateWithResilience.mockResolvedValue(
+            JSON.stringify({
+                message: 'Te derivo a endocrinología',
+                status: 'completed',
+                diagnosis: {
+                    isEmergency: false,
+                    rootCauseHypothesis: 'Hiperaldosteronismo primario',
+                    suggestedSpecialist: 'Endocrinología',
+                    confidenceLevel: 88,
+                },
+            }),
+        );
+
+        await chatService.sendMessage(100, { conversationId: 7, message: 'orino mucho de noche' });
+
+        // A Diagnosis row is inserted with promoted fields extracted from the payload.
+        expect(diagnosisRepo.save).toHaveBeenCalledTimes(1);
+        expect(diagnosisRepo.create).toHaveBeenCalledWith(
+            expect.objectContaining({
+                consultationId: 7,
+                userId: 100,
+                statusAtEmit: 'completed',
+                isEmergency: false,
+                suggestedSpecialist: 'Endocrinología',
+                confidenceLevel: 88,
+            }),
+        );
+    });
+
+    it('should NOT persist a diagnosis when the model emits none', async () => {
+        const consultation = {
+            id: 8,
+            userId: 100,
+            status: 'collecting',
+            emergencyDetected: false,
+            summary: '{}',
+        };
+
+        (consultationRepo.findOne as jest.Mock).mockResolvedValue(consultation);
+        (chatMessageRepo.create as jest.Mock).mockReturnValue({});
+        (chatMessageRepo.save as jest.Mock).mockResolvedValue({});
+
+        geminiClientService.generateWithResilience.mockResolvedValue(
+            JSON.stringify({
+                message: '¿Hace cuánto tenés los síntomas?',
+                status: 'collecting',
+                diagnosis: null,
+            }),
+        );
+
+        await chatService.sendMessage(100, { conversationId: 8, message: 'me duele la cabeza' });
+
+        expect(diagnosisRepo.save).not.toHaveBeenCalled();
     });
 
     it('should never reset emergencyDetected back to false', async () => {
