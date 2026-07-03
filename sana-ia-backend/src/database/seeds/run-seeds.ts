@@ -17,6 +17,7 @@ const dataSource = new DataSource({
     database: process.env.DB_NAME || 'sana_db',
     entities: [User, Role, RefreshToken],
     synchronize: false,
+    ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : false,
 });
 
 async function runSeeds() {

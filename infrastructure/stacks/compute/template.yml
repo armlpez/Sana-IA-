@@ -151,6 +151,9 @@ Resources:
           DB_PASSWORD=$DB_PASSWORD
           DB_NAME=${DBName}
           DB_SSL=true
+          # TEMPORARY: base schema isn't fully covered by migrations yet, so TypeORM
+          # sync creates it. Remove this once a full initial migration exists.
+          DB_SYNCHRONIZE=true
           NODE_ENV=production
           JWT_SECRET=$JWT_SECRET
           JWT_REFRESH_SECRET=$JWT_REFRESH_SECRET
