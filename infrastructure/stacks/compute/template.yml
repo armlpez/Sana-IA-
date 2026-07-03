@@ -91,6 +91,14 @@ Resources:
             -o /usr/libexec/docker/cli-plugins/docker-compose
           chmod +x /usr/libexec/docker/cli-plugins/docker-compose
 
+          # dnf's bundled buildx is often older than what the latest Compose CLI requires
+          # for `compose build` (Compose enforces a minimum buildx version at runtime).
+          # Fetch the latest buildx release instead of relying on the OS package version.
+          BUILDX_URL=$(curl -fsSL https://api.github.com/repos/docker/buildx/releases/latest \
+            | grep "browser_download_url.*linux-amd64\"" | cut -d '"' -f4)
+          curl -fsSL "$BUILDX_URL" -o /usr/libexec/docker/cli-plugins/docker-buildx
+          chmod +x /usr/libexec/docker/cli-plugins/docker-buildx
+
           command -v aws >/dev/null 2>&1 || {
             curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip
             cd /tmp && unzip -q awscliv2.zip && ./aws/install
@@ -142,6 +150,7 @@ Resources:
           DB_USERNAME=$DB_USERNAME
           DB_PASSWORD=$DB_PASSWORD
           DB_NAME=${DBName}
+          DB_SSL=true
           NODE_ENV=production
           JWT_SECRET=$JWT_SECRET
           JWT_REFRESH_SECRET=$JWT_REFRESH_SECRET

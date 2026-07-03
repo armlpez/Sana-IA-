@@ -15,6 +15,7 @@ export const dataSourceOptions: DataSourceOptions = {
     migrations: ['dist/database/migrations/*.js'],
     synchronize: false, // Always false: the CLI applies schema via migrations, never auto-sync
     logging: process.env.NODE_ENV === 'development',
+    ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : false,
 };
 
 const dataSource = new DataSource(dataSourceOptions);

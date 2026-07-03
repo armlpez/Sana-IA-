@@ -8,6 +8,7 @@ export default registerAs('database', () => ({
     database: process.env.DB_NAME || 'sana_db',
     synchronize: process.env.NODE_ENV === 'development',
     logging: process.env.NODE_ENV === 'development',
+    ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : false,
     extra: {
         max: parseInt(process.env.DB_POOL_MAX ?? '20', 10),
         idleTimeoutMillis: parseInt(process.env.DB_IDLE_TIMEOUT_MS ?? '30000', 10),
