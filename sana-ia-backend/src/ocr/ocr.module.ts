@@ -1,13 +1,12 @@
 import { Module } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { MulterModule } from '@nestjs/platform-express';
 import { OcrResult } from './entities/ocr-result.entity';
 import { OcrController } from './ocr.controller';
 import { OcrProducer } from './ocr.producer';
 import { OcrWorker } from './ocr.worker';
 import { AiModule } from '../ai/ai.module';
-import { StorageService } from '../common/services/storage.service';
+import { StorageModule } from '../storage/storage.module';
 import { OCR_QUEUE_NAME } from './ocr.job';
 
 @Module({
@@ -25,14 +24,12 @@ import { OCR_QUEUE_NAME } from './ocr.job';
                 removeOnFail: { age: 86400 }, // Keep failed jobs 24h for debugging
             },
         }),
-        MulterModule.register({
-            dest: './uploads/labs',
-        }),
         // Import AiModule to use GeminiClientService in the worker
         AiModule,
+        StorageModule,
     ],
     controllers: [OcrController],
-    providers: [OcrProducer, OcrWorker, StorageService],
+    providers: [OcrProducer, OcrWorker],
     exports: [TypeOrmModule],
 })
 export class OcrModule {}

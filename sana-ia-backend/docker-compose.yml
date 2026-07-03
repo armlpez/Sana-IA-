@@ -11,3 +11,21 @@ services:
       interval: 10s
       timeout: 3s
       retries: 3
+
+  # Only starts with `docker compose --profile cloud up -d` (e.g. on the EC2 host).
+  # Local dev keeps running `nest start --watch` outside Docker against this same Redis.
+  app:
+    build: .
+    container_name: sana-backend
+    profiles: ["cloud"]
+    env_file: .env
+    environment:
+      REDIS_HOST: redis
+    ports:
+      - "3000:3000"
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    volumes:
+      - ./uploads:/app/uploads

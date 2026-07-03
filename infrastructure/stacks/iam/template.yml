@@ -1,0 +1,71 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: SANA-IA — IAM role for the backend EC2 instance
+
+Parameters:
+  Env:
+    Type: String
+  DbSecretArn:
+    Type: String
+  JwtAccessSecretArn:
+    Type: String
+  JwtRefreshSecretArn:
+    Type: String
+  GeminiApiKeySecretArn:
+    Type: String
+  GitHubPatSecretArn:
+    Type: String
+  LabsBucketArn:
+    Type: String
+
+Resources:
+  BackendInstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "sana-backend-role-${Env}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        # Enables shell access via SSM Session Manager — no SSH keys, no open port 22.
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: SanaSecretsAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: secretsmanager:GetSecretValue
+                Resource:
+                  - !Ref DbSecretArn
+                  - !Ref JwtAccessSecretArn
+                  - !Ref JwtRefreshSecretArn
+                  - !Ref GeminiApiKeySecretArn
+                  - !Ref GitHubPatSecretArn
+        - PolicyName: SanaS3LabsAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                  - s3:DeleteObject
+                Resource: !Sub "${LabsBucketArn}/*"
+
+  BackendInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: !Sub "sana-backend-profile-${Env}"
+      Roles:
+        - !Ref BackendInstanceRole
+
+Outputs:
+  InstanceProfileName:
+    Value: !Ref BackendInstanceProfile
+  RoleArn:
+    Value: !GetAtt BackendInstanceRole.Arn

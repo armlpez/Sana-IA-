@@ -1,0 +1,35 @@
+# Copy this to samconfig.toml and run `sam deploy --guided` once — SAM will
+# prompt for every Parameter (VpcId/SubnetIds show your real dropdown options)
+# and save your answers into the real samconfig.toml, which stays out of git
+# (see infrastructure/.gitignore / root .gitignore).
+version = 0.1
+
+[default]
+
+[default.build.parameters]
+cached = true
+parallel = true
+
+[default.validate.parameters]
+lint = true
+
+[default.deploy.parameters]
+capabilities = "CAPABILITY_NAMED_IAM CAPABILITY_AUTO_EXPAND"
+confirm_changeset = true
+resolve_s3 = true
+
+[default.package.parameters]
+resolve_s3 = true
+
+[dev.deploy.parameters]
+stack_name = "sana-ia-dev"
+resolve_s3 = true
+s3_prefix = "sana-ia-dev"
+region = "us-east-1"
+confirm_changeset = true
+capabilities = "CAPABILITY_NAMED_IAM CAPABILITY_AUTO_EXPAND"
+image_repositories = []
+# parameter_overrides gets written here by `sam deploy --guided` — never commit
+# this section once it contains your real VpcId/subnets/BackendCidr.
+# Example (after sam deploy --guided):
+# parameter_overrides = "Env=dev VpcId=vpc-xxx ComputeSubnetId=subnet-xxx DbSubnetIds=subnet-yyy,subnet-zzz BackendCidr=0.0.0.0/0 ..."

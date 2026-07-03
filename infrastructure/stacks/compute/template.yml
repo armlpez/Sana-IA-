@@ -1,0 +1,178 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: "SANA-IA — Backend EC2 instance (Docker: NestJS + Redis)"
+
+Parameters:
+  Env:
+    Type: String
+  InstanceType:
+    Type: String
+    Default: t3.micro
+  LatestAmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+  ComputeSubnetId:
+    Type: AWS::EC2::Subnet::Id
+  BackendSecurityGroupId:
+    Type: String
+  InstanceProfileName:
+    Type: String
+  GitHubRepoUrl:
+    Type: String
+  GitHubBranch:
+    Type: String
+    Default: main
+  GitHubPatSecretArn:
+    Type: String
+  DbSecretArn:
+    Type: String
+  JwtAccessSecretArn:
+    Type: String
+  JwtRefreshSecretArn:
+    Type: String
+  GeminiApiKeySecretArn:
+    Type: String
+  DbEndpointAddress:
+    Type: String
+  DbEndpointPort:
+    Type: String
+  DBName:
+    Type: String
+  StorageType:
+    Type: String
+    Default: local
+    AllowedValues:
+      - local
+      - s3
+  LabsBucketName:
+    Type: String
+
+Resources:
+  BackendInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref LatestAmiId
+      InstanceType: !Ref InstanceType
+      IamInstanceProfile: !Ref InstanceProfileName
+      NetworkInterfaces:
+        - DeviceIndex: 0
+          AssociatePublicIpAddress: true
+          SubnetId: !Ref ComputeSubnetId
+          GroupSet:
+            - !Ref BackendSecurityGroupId
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeSize: 30
+            VolumeType: gp3
+            Encrypted: true
+      Tags:
+        - Key: Name
+          Value: !Sub "sana-backend-${Env}"
+      # NOTE on ${...} below: only names that are Parameters/pseudo-parameters of THIS
+      # template are meant to be replaced by CloudFormation. Every bash-runtime variable
+      # is written WITHOUT curly braces ($VAR, not ${VAR}) specifically so Fn::Sub leaves
+      # it untouched.
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -euxo pipefail
+          exec > >(tee -a /var/log/sana-userdata.log) 2>&1
+          echo "=== SANA UserData: provisioning ==="
+
+          dnf update -y
+          dnf install -y docker git python3
+
+          systemctl enable --now docker
+          usermod -aG docker ec2-user
+
+          mkdir -p /usr/libexec/docker/cli-plugins
+          curl -fsSL https://github.com/docker/compose/releases/latest/download/docker-compose-linux-x86_64 \
+            -o /usr/libexec/docker/cli-plugins/docker-compose
+          chmod +x /usr/libexec/docker/cli-plugins/docker-compose
+
+          command -v aws >/dev/null 2>&1 || {
+            curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip
+            cd /tmp && unzip -q awscliv2.zip && ./aws/install
+          }
+
+          mkdir -p /opt/sana-ia
+
+          # Written verbatim (quoted heredoc) — bash vars below are expanded when THIS
+          # script runs later, via SSM, not when UserData writes it to disk.
+          cat > /opt/sana-ia/deploy.sh <<'DEPLOYEOF'
+          #!/bin/bash
+          set -euo pipefail
+          exec > >(tee -a /var/log/sana-deploy.log) 2>&1
+          echo "=== SANA deploy: $(date -u) ==="
+
+          REGION="${AWS::Region}"
+          APP_DIR=/opt/sana-ia/app
+          REPO_URL="${GitHubRepoUrl}"
+          BRANCH="${GitHubBranch}"
+
+          get_secret() {
+            aws secretsmanager get-secret-value --secret-id "$1" --region "$REGION" --query SecretString --output text
+          }
+
+          GITHUB_TOKEN=$(get_secret "${GitHubPatSecretArn}")
+          DB_JSON=$(get_secret "${DbSecretArn}")
+          DB_USERNAME=$(echo "$DB_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin)['username'])")
+          DB_PASSWORD=$(echo "$DB_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin)['password'])")
+          JWT_SECRET=$(get_secret "${JwtAccessSecretArn}")
+          JWT_REFRESH_SECRET=$(get_secret "${JwtRefreshSecretArn}")
+          GEMINI_API_KEY=$(get_secret "${GeminiApiKeySecretArn}")
+
+          AUTH_REPO_URL=$(echo "$REPO_URL" | sed "s#https://#https://x-access-token:$GITHUB_TOKEN@#")
+
+          if [ -d "$APP_DIR/.git" ]; then
+            echo "Repo already cloned — pulling latest $BRANCH"
+            cd "$APP_DIR"
+            git remote set-url origin "$AUTH_REPO_URL"
+            git fetch origin "$BRANCH"
+            git reset --hard "origin/$BRANCH"
+          else
+            echo "Cloning $BRANCH"
+            git clone --branch "$BRANCH" --depth 1 "$AUTH_REPO_URL" "$APP_DIR"
+          fi
+
+          cat > "$APP_DIR/sana-ia-backend/.env" <<ENVEOF
+          DB_HOST=${DbEndpointAddress}
+          DB_PORT=${DbEndpointPort}
+          DB_USERNAME=$DB_USERNAME
+          DB_PASSWORD=$DB_PASSWORD
+          DB_NAME=${DBName}
+          NODE_ENV=production
+          JWT_SECRET=$JWT_SECRET
+          JWT_REFRESH_SECRET=$JWT_REFRESH_SECRET
+          GEMINI_API_KEY=$GEMINI_API_KEY
+          GEMINI_MODEL_COLLECTING=gemini-2.0-flash-lite
+          GEMINI_MODEL_ANALYZING=gemini-2.0-flash
+          GEMINI_MODEL_COMPLETED=gemini-1.5-pro
+          REDIS_HOST=redis
+          REDIS_PORT=6379
+          STORAGE_TYPE=${StorageType}
+          S3_BUCKET=${LabsBucketName}
+          AWS_REGION=$REGION
+          ENVEOF
+          chmod 600 "$APP_DIR/sana-ia-backend/.env"
+
+          cd "$APP_DIR/sana-ia-backend"
+          docker compose --profile cloud up -d --build
+
+          echo "=== SANA deploy done: $(date -u) ==="
+          DEPLOYEOF
+          chmod +x /opt/sana-ia/deploy.sh
+
+          # First-boot attempt — non-fatal. It WILL fail here if the Gemini/GitHub secrets
+          # are still placeholders (expected on the very first deploy). Fill them in, then
+          # re-run manually: sudo /opt/sana-ia/deploy.sh
+          /opt/sana-ia/deploy.sh || echo "First deploy attempt failed (expected if secrets are still placeholders). Fill in the real secrets, then run: sudo /opt/sana-ia/deploy.sh"
+
+          echo "=== SANA UserData: provisioning done ==="
+
+Outputs:
+  PublicIp:
+    Value: !GetAtt BackendInstance.PublicIp
+  InstanceId:
+    Value: !Ref BackendInstance

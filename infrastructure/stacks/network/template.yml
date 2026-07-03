@@ -1,0 +1,54 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: SANA-IA - Security Groups (backend + database)
+
+Parameters:
+  Env:
+    Type: String
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+  BackendCidr:
+    Type: String
+    Default: 0.0.0.0/0
+    Description: CIDR block allowed to reach port 3000 (default 0.0.0.0/0 is public; can be restricted to specific IP/range)
+
+Resources:
+  BackendSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Sub "SANA backend (${Env}) - public API access (protected by JWT auth)"
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3000
+          ToPort: 3000
+          CidrIp: !Ref BackendCidr
+          Description: NestJS API - access controlled by BackendCidr parameter
+      Tags:
+        - Key: Name
+          Value: !Sub "sana-backend-sg-${Env}"
+
+  DatabaseSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Sub "SANA database (${Env}) - inbound only from the backend security group"
+      VpcId: !Ref VpcId
+      Tags:
+        - Key: Name
+          Value: !Sub "sana-db-sg-${Env}"
+
+  DatabaseIngressFromBackend:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref DatabaseSecurityGroup
+      IpProtocol: tcp
+      FromPort: 5432
+      ToPort: 5432
+      SourceSecurityGroupId: !Ref BackendSecurityGroup
+      Description: PostgreSQL - only from the backend EC2
+
+Outputs:
+  BackendSecurityGroupId:
+    Value: !Ref BackendSecurityGroup
+  DatabaseSecurityGroupId:
+    Value: !Ref DatabaseSecurityGroup

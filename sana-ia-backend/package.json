@@ -26,6 +26,7 @@
     "seed": "npm run build && node dist/database/seeds/run-seeds.js"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1079.0",
     "@google/generative-ai": "^0.24.1",
     "@nestjs/bullmq": "^11.0.4",
     "@nestjs/common": "^11.0.1",

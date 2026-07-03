@@ -1,5 +1,5 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
-import { Logger } from '@nestjs/common';
+import { Inject, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Job } from 'bullmq';
@@ -7,7 +7,9 @@ import { OCR_QUEUE_NAME, OcrJobPayload } from './ocr.job';
 import { OcrResult } from './entities/ocr-result.entity';
 import { OcrJobStatus } from './enums/ocr-job-status.enum';
 import { GeminiClientService } from '../ai/services/gemini-client.service';
-import { StorageService } from '../common/services/storage.service';
+import { STORAGE_PORT } from '../storage/storage.port';
+import type { StoragePort } from '../storage/storage.port';
+import { extractMimeType } from '../storage/utils/mime.util';
 import { MODEL_TIER_FAST } from '../ai/config/model-tiers.config';
 import { Part } from '@google/generative-ai';
 
@@ -34,7 +36,7 @@ export class OcrWorker extends WorkerHost {
         @InjectRepository(OcrResult)
         private readonly ocrResultRepo: Repository<OcrResult>,
         private readonly geminiClient: GeminiClientService,
-        private readonly storageService: StorageService,
+        @Inject(STORAGE_PORT) private readonly storage: StoragePort,
     ) {
         super();
     }
@@ -61,9 +63,9 @@ export class OcrWorker extends WorkerHost {
             }
 
             // 3. Read image from storage (local disk or S3 via abstraction)
-            const imageBuffer = await this.storageService.getFile(ocrResult.imagePath);
+            const imageBuffer = await this.storage.get(ocrResult.imagePath);
             const base64Image = imageBuffer.toString('base64');
-            const mimeType = this.storageService.extractMimeType(ocrResult.imagePath);
+            const mimeType = extractMimeType(ocrResult.imagePath);
 
             // 4. Build prompt for Gemini Vision
             const prompt = this.buildOcrPrompt(base64Image, mimeType);
@@ -118,7 +120,7 @@ export class OcrWorker extends WorkerHost {
                     where: { id: ocrResultId },
                 });
                 if (ocrResult?.imagePath) {
-                    await this.storageService.deleteFile(ocrResult.imagePath);
+                    await this.storage.remove(ocrResult.imagePath);
                 }
             } catch (cleanupErr) {
                 this.logger.warn(`Cleanup failed for OCR job ${ocrResultId}: ${cleanupErr}`);

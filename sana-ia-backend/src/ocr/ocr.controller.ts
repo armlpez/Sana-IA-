@@ -2,6 +2,7 @@ import {
     Controller,
     Post,
     Get,
+    Inject,
     Param,
     Req,
     UseInterceptors,
@@ -15,19 +16,18 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { diskStorage } from 'multer';
+import { memoryStorage } from 'multer';
 import { ErrorResponseBuilder } from '../common/utils/error-response.builder';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { randomUUID } from 'crypto';
-import { extname, join } from 'path';
+import { extname } from 'path';
 import { OcrResult } from './entities/ocr-result.entity';
 import { OcrJobStatus } from './enums/ocr-job-status.enum';
 import { OcrProducer } from './ocr.producer';
 import { SubmitOcrDto } from './dto/submit-ocr.dto';
-
-/** Directory where uploaded lab images are stored temporarily */
-const UPLOAD_DIR = join(process.cwd(), 'uploads', 'labs');
+import { STORAGE_PORT } from '../storage/storage.port';
+import type { StoragePort } from '../storage/storage.port';
 
 @UseGuards(JwtAuthGuard)
 @Controller('v1/ocr')
@@ -38,6 +38,7 @@ export class OcrController {
         @InjectRepository(OcrResult)
         private readonly ocrResultRepo: Repository<OcrResult>,
         private readonly ocrProducer: OcrProducer,
+        @Inject(STORAGE_PORT) private readonly storage: StoragePort,
     ) {}
 
     /**
@@ -51,13 +52,7 @@ export class OcrController {
     @Post('analyze')
     @UseInterceptors(
         FileInterceptor('image', {
-            storage: diskStorage({
-                destination: UPLOAD_DIR,
-                filename: (_req, file, cb) => {
-                    const uniqueName = `${randomUUID()}${extname(file.originalname)}`;
-                    cb(null, uniqueName);
-                },
-            }),
+            storage: memoryStorage(),
             limits: {
                 fileSize: 10 * 1024 * 1024, // 10 MB max
             },
@@ -77,18 +72,22 @@ export class OcrController {
         @Req() req: any,
     ) {
         const userId = req.user?.id;
+        const key = `labs/${randomUUID()}${extname(file.originalname)}`;
 
-        // 1. Persist the record in Postgres FIRST (durable truth)
+        // 1. Persist the file through the storage port (local disk or S3, transparently)
+        await this.storage.save({ buffer: file.buffer, contentType: file.mimetype }, key);
+
+        // 2. Persist the record in Postgres (durable truth) — imagePath stores the storage KEY
         const ocrResult = this.ocrResultRepo.create({
             userId,
             consultationId: dto.consultationId,
-            imagePath: file.path,
+            imagePath: key,
             originalFilename: dto.originalFilename ?? file.originalname,
             status: OcrJobStatus.QUEUED,
         });
         const saved = await this.ocrResultRepo.save(ocrResult) as OcrResult;
 
-        // 2. Enqueue the job in BullMQ (only IDs travel through Redis)
+        // 3. Enqueue the job in BullMQ (only IDs travel through Redis)
         await this.ocrProducer.enqueue({
             ocrResultId: saved.id,
             userId,
@@ -99,7 +98,7 @@ export class OcrController {
             `OCR job submitted — ocrResultId: ${saved.id}, user: ${userId}, file: ${file.originalname}`,
         );
 
-        // 3. Return 202 Accepted with the jobId for polling
+        // 4. Return 202 Accepted with the jobId for polling
         return {
             statusCode: 202,
             jobId: saved.id,
