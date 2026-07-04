@@ -2,18 +2,18 @@ import { Provider } from '@nestjs/common';
 import { LlmProviderPort, LLM_PROVIDER_PORT } from '../ports/llm-provider.port';
 import { GeminiAdapter } from '../adapters/gemini-adapter';
 import { GroqAdapter } from '../adapters/groq-adapter';
-import { DeepSeekAdapter } from '../adapters/deepseek-adapter';
+import { CerebrasAdapter } from '../adapters/cerebras-adapter';
 import { GeminiClientService } from '../services/gemini-client.service';
 
 /**
  * LLM Provider Factory — creates a Map of all available providers
- * keyed by name ('gemini', 'groq', 'deepseek', etc).
+ * keyed by name ('gemini', 'groq', 'cerebras', etc).
  *
  * This enables config-driven provider selection without code changes.
  * Add new providers by:
  * 1. Creating an adapter (e.g., ZhipuAdapter)
  * 2. Adding it to the factory map
- * 3. Updating .env: LLM_FALLBACK_CHAIN=groq,deepseek,zhipu
+ * 3. Updating .env: LLM_FALLBACK_CHAIN=groq,cerebras,zhipu
  */
 export const createLlmProviderFactory = (): Provider => {
   return {
@@ -21,21 +21,22 @@ export const createLlmProviderFactory = (): Provider => {
     useFactory: (
       geminiClient: GeminiClientService,
       groqAdapter: GroqAdapter,
-      deepSeekAdapter: DeepSeekAdapter,
+      CerebrasAdapter: CerebrasAdapter,
     ): Map<string, LlmProviderPort> => {
       const geminiAdapter = new GeminiAdapter(geminiClient);
 
       const providers = new Map<string, LlmProviderPort>([
         ['gemini', geminiAdapter],
         ['groq', groqAdapter],
-        ['deepseek', deepSeekAdapter],
+        ['cerebras', CerebrasAdapter],
         // Future providers:
         // ['zhipu', zhipuAdapter],
-        // ['cerebras', cerebrasAdapter],
+        // ['cerebras', CerebrasAdapter],
       ]);
 
       return providers;
     },
-    inject: [GeminiClientService, GroqAdapter, DeepSeekAdapter],
+    inject: [GeminiClientService, GroqAdapter, CerebrasAdapter],
   };
 };
+

@@ -1,18 +1,18 @@
 import { ConfigService } from '@nestjs/config';
-import { DeepSeekAdapter } from './deepseek-adapter';
+import { CerebrasAdapter } from './cerebras-adapter';
 import { AppException } from '../../common/exceptions/app-exception';
 import { MODEL_TIER_FAST, MODEL_TIER_PRO } from '../config/model-tiers.config';
 
 function createConfigService(overrides: Record<string, unknown> = {}): ConfigService {
     const defaults: Record<string, unknown> = {
-        DEEPSEEK_API_KEY: 'test-deepseek-key',
+        cerebras_API_KEY: 'test-cerebras-key',
         aiModels: {
-            deepseekModelCollecting: 'deepseek-v4-flash',
-            deepseekModelAnalyzing: 'deepseek-v4-flash',
-            deepseekModelCompleted: 'deepseek-v4-pro',
+            cerebrasModelCollecting: 'cerebras-v4-flash',
+            cerebrasModelAnalyzing: 'cerebras-v4-flash',
+            cerebrasModelCompleted: 'cerebras-v4-pro',
             timeoutFastMs: 200,
             timeoutSlowMs: 500,
-            deepseekRetryMax: 1,
+            cerebrasRetryMax: 1,
             retryBaseMs: 10,
             retryCapMs: 50,
         },
@@ -33,8 +33,8 @@ function jsonResponse(body: unknown, ok = true, status = 200) {
     } as Response;
 }
 
-describe('DeepSeekAdapter', () => {
-    let adapter: DeepSeekAdapter;
+describe('CerebrasAdapter', () => {
+    let adapter: CerebrasAdapter;
     let fetchMock: jest.Mock;
 
     beforeEach(() => {
@@ -42,25 +42,25 @@ describe('DeepSeekAdapter', () => {
         jest.useRealTimers();
         fetchMock = jest.fn();
         global.fetch = fetchMock as unknown as typeof fetch;
-        adapter = new DeepSeekAdapter(createConfigService());
+        adapter = new CerebrasAdapter(createConfigService());
     });
 
     afterEach(() => {
         jest.clearAllTimers();
     });
 
-    it('reports its provider name as "deepseek"', () => {
-        expect(adapter.getName()).toBe('deepseek');
+    it('reports its provider name as "cerebras"', () => {
+        expect(adapter.getName()).toBe('cerebras');
     });
 
     describe('generateWithResilience', () => {
         it('returns the raw text on a successful call', async () => {
             fetchMock.mockResolvedValueOnce(
-                jsonResponse({ choices: [{ message: { content: 'respuesta de deepseek' } }] }),
+                jsonResponse({ choices: [{ message: { content: 'respuesta de cerebras' } }] }),
             );
 
             const result = await adapter.generateWithResilience(MODEL_TIER_FAST, 'test prompt');
-            expect(result).toBe('respuesta de deepseek');
+            expect(result).toBe('respuesta de cerebras');
         });
 
         it('calls the chat/completions endpoint with the Authorization header', async () => {
@@ -71,11 +71,11 @@ describe('DeepSeekAdapter', () => {
             await adapter.generateWithResilience(MODEL_TIER_FAST, 'test prompt');
 
             expect(fetchMock).toHaveBeenCalledWith(
-                'https://api.deepseek.com/chat/completions',
+                'https://api.cerebras.ai/v1/chat/completions',
                 expect.objectContaining({
                     method: 'POST',
                     headers: expect.objectContaining({
-                        Authorization: 'Bearer test-deepseek-key',
+                        Authorization: 'Bearer test-cerebras-key',
                     }),
                 }),
             );
@@ -133,7 +133,7 @@ describe('DeepSeekAdapter', () => {
 
             const [, requestInit] = fetchMock.mock.calls[0];
             const body = JSON.parse(requestInit.body as string);
-            expect(body.model).toBe('deepseek-v4-pro');
+            expect(body.model).toBe('cerebras-v4-pro');
         });
 
         it('flattens multimodal Part[] prompts to text-only content (no image support)', async () => {
@@ -161,3 +161,5 @@ describe('DeepSeekAdapter', () => {
         });
     });
 });
+
+

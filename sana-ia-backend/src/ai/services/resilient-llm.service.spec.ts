@@ -39,7 +39,7 @@ function parseError(): AppException {
 function createConfigService(overrides: Record<string, unknown> = {}): ConfigService {
     const defaults: Record<string, unknown> = {
         LLM_PRIMARY_PROVIDER: 'gemini',
-        LLM_FALLBACK_CHAIN: 'groq,deepseek',
+        LLM_FALLBACK_CHAIN: 'groq,cerebras',
         ...overrides,
     };
 
@@ -51,17 +51,17 @@ function createConfigService(overrides: Record<string, unknown> = {}): ConfigSer
 describe('ResilientLlmService', () => {
     let gemini: jest.Mocked<LlmProviderPort>;
     let groq: jest.Mocked<LlmProviderPort>;
-    let deepseek: jest.Mocked<LlmProviderPort>;
+    let cerebras: jest.Mocked<LlmProviderPort>;
     let providers: Map<string, LlmProviderPort>;
 
     beforeEach(() => {
         gemini = fakeProvider('gemini');
         groq = fakeProvider('groq');
-        deepseek = fakeProvider('deepseek');
+        cerebras = fakeProvider('cerebras');
         providers = new Map([
             ['gemini', gemini],
             ['groq', groq],
-            ['deepseek', deepseek],
+            ['cerebras', cerebras],
         ]);
     });
 
@@ -74,7 +74,7 @@ describe('ResilientLlmService', () => {
         expect(result).toBe('respuesta de gemini');
         expect(gemini.generateWithResilience).toHaveBeenCalledTimes(1);
         expect(groq.generateWithResilience).not.toHaveBeenCalled();
-        expect(deepseek.generateWithResilience).not.toHaveBeenCalled();
+        expect(cerebras.generateWithResilience).not.toHaveBeenCalled();
     });
 
     it('falls back to the next provider in the chain on RATE_LIMITED', async () => {
@@ -87,27 +87,27 @@ describe('ResilientLlmService', () => {
         expect(result).toBe('respuesta de groq');
         expect(gemini.generateWithResilience).toHaveBeenCalledTimes(1);
         expect(groq.generateWithResilience).toHaveBeenCalledTimes(1);
-        expect(deepseek.generateWithResilience).not.toHaveBeenCalled();
+        expect(cerebras.generateWithResilience).not.toHaveBeenCalled();
     });
 
-    it('walks the full chain (gemini -> groq -> deepseek) when both prior providers are rate-limited', async () => {
+    it('walks the full chain (gemini -> groq -> cerebras) when both prior providers are rate-limited', async () => {
         gemini.generateWithResilience.mockRejectedValueOnce(rateLimitedError());
         groq.generateWithResilience.mockRejectedValueOnce(unavailableError());
-        deepseek.generateWithResilience.mockResolvedValueOnce('respuesta de deepseek');
+        cerebras.generateWithResilience.mockResolvedValueOnce('respuesta de cerebras');
 
         const service = new ResilientLlmService(providers, createConfigService());
         const result = await service.generateWithFallback(MODEL_TIER_FAST, 'hola');
 
-        expect(result).toBe('respuesta de deepseek');
+        expect(result).toBe('respuesta de cerebras');
         expect(gemini.generateWithResilience).toHaveBeenCalledTimes(1);
         expect(groq.generateWithResilience).toHaveBeenCalledTimes(1);
-        expect(deepseek.generateWithResilience).toHaveBeenCalledTimes(1);
+        expect(cerebras.generateWithResilience).toHaveBeenCalledTimes(1);
     });
 
     it('throws when every provider in the chain is exhausted', async () => {
         gemini.generateWithResilience.mockRejectedValueOnce(rateLimitedError());
         groq.generateWithResilience.mockRejectedValueOnce(unavailableError());
-        deepseek.generateWithResilience.mockRejectedValueOnce(rateLimitedError());
+        cerebras.generateWithResilience.mockRejectedValueOnce(rateLimitedError());
 
         const service = new ResilientLlmService(providers, createConfigService());
 
@@ -116,7 +116,7 @@ describe('ResilientLlmService', () => {
         );
         expect(gemini.generateWithResilience).toHaveBeenCalledTimes(1);
         expect(groq.generateWithResilience).toHaveBeenCalledTimes(1);
-        expect(deepseek.generateWithResilience).toHaveBeenCalledTimes(1);
+        expect(cerebras.generateWithResilience).toHaveBeenCalledTimes(1);
     });
 
     it('does NOT fall back on a non-transient error (PARSE) — stops immediately', async () => {
@@ -129,7 +129,7 @@ describe('ResilientLlmService', () => {
         );
         expect(gemini.generateWithResilience).toHaveBeenCalledTimes(1);
         expect(groq.generateWithResilience).not.toHaveBeenCalled();
-        expect(deepseek.generateWithResilience).not.toHaveBeenCalled();
+        expect(cerebras.generateWithResilience).not.toHaveBeenCalled();
     });
 
     it('respects a single-provider legacy LLM_FALLBACK_PROVIDER when LLM_FALLBACK_CHAIN is unset', async () => {
@@ -143,7 +143,7 @@ describe('ResilientLlmService', () => {
         const result = await service.generateWithFallback(MODEL_TIER_FAST, 'hola');
 
         expect(result).toBe('respuesta de groq');
-        expect(deepseek.generateWithResilience).not.toHaveBeenCalled();
+        expect(cerebras.generateWithResilience).not.toHaveBeenCalled();
     });
 
     it('throws the primary error directly when no fallback provider is configured', async () => {
@@ -160,3 +160,5 @@ describe('ResilientLlmService', () => {
         expect(gemini.generateWithResilience).toHaveBeenCalledTimes(1);
     });
 });
+
+

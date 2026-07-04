@@ -11,13 +11,13 @@ import { AppException } from '../../common/exceptions/app-exception';
  * Strategy:
  * 1. Try the primary provider (usually Gemini)
  * 2. On RATE_LIMITED / UNAVAILABLE, try the next provider in the fallback chain
- *    (e.g. Groq, then DeepSeek)
+ *    (e.g. Groq, then cerebras)
  * 3. On a non-transient error (PARSE, TIMEOUT, UNKNOWN), stop immediately —
  *    switching providers won't fix a malformed prompt or a hung request.
  * 4. If every provider in the chain is exhausted, throw so the caller falls
  *    back to SafeFallbackBuilder's clinically-safe message.
  *
- * Chain is config-driven (LLM_FALLBACK_CHAIN=groq,deepseek) so adding a 4th
+ * Chain is config-driven (LLM_FALLBACK_CHAIN=groq,cerebras) so adding a 4th
  * provider is a one-line env change plus a new adapter — no code changes here.
  */
 @Injectable()
@@ -142,3 +142,5 @@ export class ResilientLlmService {
     return e.message ?? String(err).substring(0, 200);
   }
 }
+
+

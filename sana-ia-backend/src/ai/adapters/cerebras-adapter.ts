@@ -7,23 +7,23 @@ import { classifyGeminiError } from '../utils/error-classifier';
 import { AppException } from '../../common/exceptions/app-exception';
 import { ErrorCode } from '../../common/enums/error-codes.enum';
 
-const DEEPSEEK_BASE_URL = 'https://api.deepseek.com';
+const CEREBRAS_BASE_URL = 'https://api.cerebras.ai/v1';
 
 /**
- * DeepSeek Adapter — implements LlmProviderPort for DeepSeek's OpenAI-compatible REST API.
+ * cerebras Adapter — implements LlmProviderPort for cerebras's OpenAI-compatible REST API.
  *
- * Uses native fetch (Node >= 18) instead of adding another SDK dependency — DeepSeek's
+ * Uses native fetch (Node >= 18) instead of adding another SDK dependency — cerebras's
  * API surface is a plain chat/completions POST, identical in shape to OpenAI/Groq.
  *
  * Mirrors GeminiClientService/GroqAdapter structure: tier-based model selection,
  * per-tier timeout, retry with exponential backoff on transient errors only.
  */
 @Injectable()
-export class DeepSeekAdapter implements LlmProviderPort {
-  private readonly logger = new Logger(DeepSeekAdapter.name);
+export class CerebrasAdapter implements LlmProviderPort {
+  private readonly logger = new Logger(CerebrasAdapter.name);
   private readonly apiKey: string;
 
-  // Model tier mapping (DeepSeek-specific — deepseek-chat/deepseek-reasoner are
+  // Model tier mapping (cerebras-specific — cerebras-chat/cerebras-reasoner are
   // deprecated 2026-07-24, so we go straight to the v4 model line).
   private readonly modelFast: string;
   private readonly modelMid: string;
@@ -37,20 +37,20 @@ export class DeepSeekAdapter implements LlmProviderPort {
   private readonly retryCapMs: number;
 
   constructor(private readonly configService: ConfigService) {
-    this.apiKey = this.configService.get<string>('DEEPSEEK_API_KEY') ?? '';
+    this.apiKey = this.configService.get<string>('cerebras_API_KEY') ?? '';
     if (!this.apiKey) {
-      this.logger.warn('DEEPSEEK_API_KEY not configured — DeepSeekAdapter will not function.');
+      this.logger.warn('cerebras_API_KEY not configured — CerebrasAdapter will not function.');
     }
 
     const cfg = this.configService.get<Record<string, unknown>>('aiModels') ?? {};
-    this.modelFast = (cfg['deepseekModelCollecting'] as string | undefined) ?? 'deepseek-v4-flash';
-    this.modelMid = (cfg['deepseekModelAnalyzing'] as string | undefined) ?? 'deepseek-v4-flash';
-    this.modelSlow = (cfg['deepseekModelCompleted'] as string | undefined) ?? 'deepseek-v4-pro';
+    this.modelFast = (cfg['cerebrasModelCollecting'] as string | undefined) ?? 'cerebras-v4-flash';
+    this.modelMid = (cfg['cerebrasModelAnalyzing'] as string | undefined) ?? 'cerebras-v4-flash';
+    this.modelSlow = (cfg['cerebrasModelCompleted'] as string | undefined) ?? 'cerebras-v4-pro';
 
     this.timeoutFastMs = (cfg['timeoutFastMs'] as number | undefined) ?? 8000;
     this.timeoutSlowMs = (cfg['timeoutSlowMs'] as number | undefined) ?? 25000;
 
-    this.retryMax = (cfg['deepseekRetryMax'] as number | undefined) ?? 0;
+    this.retryMax = (cfg['cerebrasRetryMax'] as number | undefined) ?? 0;
     this.retryBaseMs = (cfg['retryBaseMs'] as number | undefined) ?? 500;
     this.retryCapMs = (cfg['retryCapMs'] as number | undefined) ?? 4000;
   }
@@ -66,7 +66,7 @@ export class DeepSeekAdapter implements LlmProviderPort {
       if (attempt > 0) {
         const backoff = this.computeBackoff(attempt);
         this.logger.warn(
-          `Retrying DeepSeek call (attempt ${attempt}/${this.retryMax}) after ${backoff}ms — kind: ${lastKind}`,
+          `Retrying cerebras call (attempt ${attempt}/${this.retryMax}) after ${backoff}ms — kind: ${lastKind}`,
         );
         await this.sleep(backoff);
       }
@@ -79,11 +79,11 @@ export class DeepSeekAdapter implements LlmProviderPort {
 
         const errDetail = this.extractErrorDetail(err);
         this.logger.error(
-          `DeepSeek error on attempt ${attempt} — kind: ${kind}, model: ${modelName}, ` +
+          `cerebras error on attempt ${attempt} — kind: ${kind}, model: ${modelName}, ` +
           `status: ${errDetail.status}, message: ${errDetail.message}`,
         );
         if (errDetail.raw) {
-          this.logger.error(`DeepSeek raw error detail: ${errDetail.raw}`);
+          this.logger.error(`cerebras raw error detail: ${errDetail.raw}`);
         }
 
         const RETRYABLE = new Set([GeminiErrorKind.RATE_LIMITED, GeminiErrorKind.UNAVAILABLE]);
@@ -99,7 +99,7 @@ export class DeepSeekAdapter implements LlmProviderPort {
   }
 
   getName(): string {
-    return 'deepseek';
+    return 'cerebras';
   }
 
   // ========== Private helpers ==========
@@ -123,7 +123,7 @@ export class DeepSeekAdapter implements LlmProviderPort {
     const timer = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
-      const res = await fetch(`${DEEPSEEK_BASE_URL}/chat/completions`, {
+      const res = await fetch(`${CEREBRAS_BASE_URL}/chat/completions`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -139,7 +139,7 @@ export class DeepSeekAdapter implements LlmProviderPort {
 
       if (!res.ok) {
         const errBody = await res.text().catch(() => '');
-        const httpError = new Error(`DeepSeek HTTP ${res.status}: ${errBody.substring(0, 200)}`);
+        const httpError = new Error(`cerebras HTTP ${res.status}: ${errBody.substring(0, 200)}`);
         (httpError as any).status = res.status;
         throw httpError;
       }
@@ -155,7 +155,7 @@ export class DeepSeekAdapter implements LlmProviderPort {
   }
 
   /**
-   * DeepSeek's chat/completions endpoint is text-only (no multimodal image parts,
+   * cerebras's chat/completions endpoint is text-only (no multimodal image parts,
    * unlike Gemini Vision). If a Part[] prompt (used for OCR) reaches this adapter,
    * flatten to text-only content — image parts are dropped with a warning.
    */
@@ -165,7 +165,7 @@ export class DeepSeekAdapter implements LlmProviderPort {
       .map((p) => p.text);
 
     if (textParts.length !== parts.length) {
-      this.logger.warn('DeepSeek does not support image parts — non-text parts were dropped from the prompt.');
+      this.logger.warn('cerebras does not support image parts — non-text parts were dropped from the prompt.');
     }
 
     return textParts.join('\n');
@@ -188,27 +188,27 @@ export class DeepSeekAdapter implements LlmProviderPort {
     const messages: Record<GeminiErrorKind, { code: ErrorCode; message: string }> = {
       [GeminiErrorKind.RATE_LIMITED]: {
         code: ErrorCode.AI_RATE_LIMITED,
-        message: `DeepSeek rate limited after ${attempt} attempts. Please try again in a moment.`,
+        message: `cerebras rate limited after ${attempt} attempts. Please try again in a moment.`,
       },
       [GeminiErrorKind.TIMEOUT]: {
         code: ErrorCode.AI_TIMEOUT,
-        message: `DeepSeek request timed out after ${attempt} attempts.`,
+        message: `cerebras request timed out after ${attempt} attempts.`,
       },
       [GeminiErrorKind.UNAVAILABLE]: {
         code: ErrorCode.AI_UNAVAILABLE,
-        message: `DeepSeek service temporarily unavailable after ${attempt} attempts.`,
+        message: `cerebras service temporarily unavailable after ${attempt} attempts.`,
       },
       [GeminiErrorKind.POLICY_BLOCK]: {
         code: ErrorCode.AI_SERVICE_ERROR,
-        message: `DeepSeek policy violation after ${attempt} attempts.`,
+        message: `cerebras policy violation after ${attempt} attempts.`,
       },
       [GeminiErrorKind.PARSE]: {
         code: ErrorCode.AI_PARSE_FAILED,
-        message: `DeepSeek response format error after ${attempt} attempts.`,
+        message: `cerebras response format error after ${attempt} attempts.`,
       },
       [GeminiErrorKind.UNKNOWN]: {
         code: ErrorCode.AI_SERVICE_ERROR,
-        message: `DeepSeek error after ${attempt} attempts.`,
+        message: `cerebras error after ${attempt} attempts.`,
       },
     };
 
@@ -253,3 +253,5 @@ export class DeepSeekAdapter implements LlmProviderPort {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 }
+
+

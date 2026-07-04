@@ -1,0 +1,8 @@
+{
+    "commands":  [
+                     "echo === PROCESSES ===",
+                     "ps aux --sort=-%mem | head -n 15",
+                     "echo === DOCKER === ",
+                     "docker ps"
+                 ]
+}
