@@ -125,6 +125,7 @@ export class DeepSeekAdapter implements LlmProviderPort {
         body: JSON.stringify({
           model: modelName,
           messages: [{ role: 'user', content }],
+          response_format: { type: 'json_object' },
         }),
         signal: controller.signal,
       });

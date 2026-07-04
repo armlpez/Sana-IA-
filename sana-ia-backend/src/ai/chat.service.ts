@@ -309,10 +309,15 @@ export class ChatService {
         diagnosis: Record<string, unknown> | null;
     } {
         let cleaned = rawText.trim();
-        if (cleaned.startsWith('```json')) {
-            cleaned = cleaned.replace(/^```json\n?/, '').replace(/\n?```$/, '');
-        } else if (cleaned.startsWith('```')) {
-            cleaned = cleaned.replace(/^```\n?/, '').replace(/\n?```$/, '');
+        const jsonMatch = cleaned.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+        if (jsonMatch) {
+            cleaned = jsonMatch[1].trim();
+        } else {
+            const firstBrace = cleaned.indexOf('{');
+            const lastBrace = cleaned.lastIndexOf('}');
+            if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+                cleaned = cleaned.substring(firstBrace, lastBrace + 1);
+            }
         }
 
         const data = JSON.parse(cleaned); // throws if invalid JSON — caught by caller

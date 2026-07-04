@@ -128,6 +128,7 @@ export class GroqAdapter implements LlmProviderPort {
         model: modelName,
         messages,
         temperature: 1, // For consistency with Gemini's sampling
+        response_format: { type: 'json_object' },
       }),
       this.timeoutPromise(timeoutMs),
     ]);
