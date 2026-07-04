@@ -9,7 +9,7 @@ import { MessageRole } from '../chat-messages/enums/message-role.enum';
 import { ChatInputDto } from '../consultations/dto/chat-input.dto';
 import { ChatResponseDto } from '../consultations/dto/chat-response.dto';
 import { SANA_CHAT_SYSTEM_PROMPT } from './prompts/chat-system-prompt';
-import { GeminiClientService } from './services/gemini-client.service';
+import { ResilientLlmService } from './services/resilient-llm.service';
 import { SafeFallbackBuilder, ChatFallbackShape } from './utils/safe-fallback.builder';
 import { GeminiErrorKind } from './utils/gemini-error-kind';
 import { classifyGeminiError } from './utils/error-classifier';
@@ -28,7 +28,7 @@ export class ChatService {
         private readonly consultationRepo: Repository<Consultation>,
         @InjectRepository(ChatMessage)
         private readonly chatMessageRepo: Repository<ChatMessage>,
-        private readonly geminiClient: GeminiClientService,
+        private readonly resilientLlm: ResilientLlmService,
         @InjectRepository(Diagnosis)
         private readonly diagnosisRepo: Repository<Diagnosis>,
     ) {}
@@ -68,10 +68,10 @@ export class ChatService {
         const tier = tierForStatus(consultation.status);
         const prompt = this.buildPromptWithContext(dto.message, consultation);
 
-        // 4. Call Gemini via resilience layer
+        // 4. Call LLM via multi-provider resilience layer (Gemini → Groq → fallback)
         let rawText: string;
         try {
-            rawText = await this.geminiClient.generateWithResilience(tier, prompt);
+            rawText = await this.resilientLlm.generateWithFallback(tier, prompt);
         } catch (err: unknown) {
             const kind = err instanceof AppException
                 ? this.kindFromAppException(err)

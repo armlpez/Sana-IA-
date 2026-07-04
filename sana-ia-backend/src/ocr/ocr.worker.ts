@@ -10,7 +10,7 @@ import { GeminiClientService } from '../ai/services/gemini-client.service';
 import { STORAGE_PORT } from '../storage/storage.port';
 import type { StoragePort } from '../storage/storage.port';
 import { extractMimeType } from '../storage/utils/mime.util';
-import { MODEL_TIER_FAST } from '../ai/config/model-tiers.config';
+import { MODEL_TIER_PRO } from '../ai/config/model-tiers.config';
 import { Part } from '@google/generative-ai';
 
 /**
@@ -71,8 +71,10 @@ export class OcrWorker extends WorkerHost {
             const prompt = this.buildOcrPrompt(base64Image, mimeType);
 
             // 5. Call Gemini via resilience layer
+            // MODEL_TIER_PRO → timeoutSlowMs (30s) to accommodate Gemini Vision OCR (8-15s typical).
+            // The fast tier (8s) is too tight for image processing.
             const rawText = await this.geminiClient.generateWithResilience(
-                MODEL_TIER_FAST,
+                MODEL_TIER_PRO,
                 prompt,
             );
 

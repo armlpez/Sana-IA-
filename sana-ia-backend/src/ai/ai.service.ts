@@ -4,7 +4,7 @@ import { AnalyzeInputDto } from './dto/analyze-input.dto';
 import { AnalyzeResponseDto } from './dto/analyze-response.dto';
 import { AiResponseSchema, AiResponseType } from './schemas/ai-response.schema';
 import { SANA_SYSTEM_PROMPT, buildAnalysisPrompt } from './prompts/system-prompt';
-import { GeminiClientService } from './services/gemini-client.service';
+import { ResilientLlmService } from './services/resilient-llm.service';
 import { SafeFallbackBuilder } from './utils/safe-fallback.builder';
 import { GeminiErrorKind } from './utils/gemini-error-kind';
 import { classifyGeminiError } from './utils/error-classifier';
@@ -16,7 +16,7 @@ import { ErrorCode } from '../common/enums/error-codes.enum';
 export class AiService {
     private readonly logger = new Logger(AiService.name);
 
-    constructor(private readonly geminiClient: GeminiClientService) {}
+    constructor(private readonly resilientLlm: ResilientLlmService) {}
 
     /**
      * Analyzes symptoms using the pro-tier Gemini model.
@@ -35,11 +35,11 @@ export class AiService {
 
         const prompt = [SANA_SYSTEM_PROMPT, buildAnalysisPrompt(symptoms, currentTreatment, durationWithoutImprovement)].join('\n\n');
 
-        // GeminiClientService handles timeout + retry + classification.
-        // If it throws, the error is an AppException — let it propagate to GlobalExceptionFilter.
+        // ResilientLlmService handles multi-provider fallback (Gemini → Groq → SafeFallback)
+        // and timeout + retry + classification. If it throws, the error is an AppException.
         let rawText: string;
         try {
-            rawText = await this.geminiClient.generateWithResilience(MODEL_TIER_PRO, prompt);
+            rawText = await this.resilientLlm.generateWithFallback(MODEL_TIER_PRO, prompt);
         } catch (err: unknown) {
             // Re-classify in case the inner service threw something unexpected
             const kind = err instanceof AppException

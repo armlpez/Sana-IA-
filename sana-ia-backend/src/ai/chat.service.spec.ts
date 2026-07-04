@@ -8,7 +8,7 @@ describe('ChatService — Emergency Latch', () => {
     let chatService: ChatService;
     let consultationRepo: Repository<Consultation>;
     let chatMessageRepo: Repository<ChatMessage>;
-    let geminiClientService: any;
+    let resilientLlmService: any;
     let diagnosisRepo: Repository<Diagnosis>;
 
     beforeEach(() => {
@@ -24,8 +24,8 @@ describe('ChatService — Emergency Latch', () => {
             save: jest.fn(),
         } as any;
 
-        geminiClientService = {
-            generateWithResilience: jest.fn(),
+        resilientLlmService = {
+            generateWithFallback: jest.fn(),
         };
 
         diagnosisRepo = {
@@ -36,7 +36,7 @@ describe('ChatService — Emergency Latch', () => {
         chatService = new ChatService(
             consultationRepo,
             chatMessageRepo,
-            geminiClientService,
+            resilientLlmService,
             diagnosisRepo,
         );
     });
@@ -56,7 +56,7 @@ describe('ChatService — Emergency Latch', () => {
         (chatMessageRepo.save as jest.Mock).mockResolvedValue({});
 
         // Simula respuesta estructurada JSON de Gemini que indica emergencia
-        geminiClientService.generateWithResilience.mockResolvedValue(
+        resilientLlmService.generateWithFallback.mockResolvedValue(
             JSON.stringify({
                 message: 'Vaya a urgencias',
                 diagnosis: {
@@ -88,7 +88,7 @@ describe('ChatService — Emergency Latch', () => {
         (chatMessageRepo.create as jest.Mock).mockReturnValue({});
         (chatMessageRepo.save as jest.Mock).mockResolvedValue({});
 
-        geminiClientService.generateWithResilience.mockResolvedValue(
+        resilientLlmService.generateWithFallback.mockResolvedValue(
             JSON.stringify({
                 message: 'Te derivo a endocrinología',
                 status: 'completed',
@@ -130,7 +130,7 @@ describe('ChatService — Emergency Latch', () => {
         (chatMessageRepo.create as jest.Mock).mockReturnValue({});
         (chatMessageRepo.save as jest.Mock).mockResolvedValue({});
 
-        geminiClientService.generateWithResilience.mockResolvedValue(
+        resilientLlmService.generateWithFallback.mockResolvedValue(
             JSON.stringify({
                 message: '¿Hace cuánto tenés los síntomas?',
                 status: 'collecting',
@@ -158,7 +158,7 @@ describe('ChatService — Emergency Latch', () => {
         (chatMessageRepo.save as jest.Mock).mockResolvedValue({});
 
         // Simula respuesta de Gemini que dice que NO es emergencia
-        geminiClientService.generateWithResilience.mockResolvedValue(
+        resilientLlmService.generateWithFallback.mockResolvedValue(
             JSON.stringify({
                 message: 'Tómate un antiácido',
                 diagnosis: {
