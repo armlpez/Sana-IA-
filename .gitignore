@@ -8,3 +8,5 @@ infrastructure/samconfig.toml
 # --- OS ---
 .DS_Store
 Thumbs.db
+
+.atl

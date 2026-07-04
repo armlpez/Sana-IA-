@@ -213,13 +213,18 @@ export class ChatService {
             responseTimeMs,
         });
 
-        // Save the fallback message so the conversation record is complete
+        // Save the fallback message so the conversation record is complete.
+        // Persist the errorKind so operators can tell WHY the fallback fired
+        // (RATE_LIMITED, TIMEOUT, PARSE, ...) directly from the DB — no log grep needed.
         const assistantMsg = this.chatMessageRepo.create({
             consultationId: consultation.id,
             role: MessageRole.ASSISTANT,
             content: fallback.message,
             metadata: {
                 responseTimeMs,
+                failure: {
+                    errorKind: kind,
+                },
             },
         });
         await this.chatMessageRepo.save(assistantMsg);

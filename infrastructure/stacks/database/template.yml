@@ -51,7 +51,7 @@ Resources:
       DBSubnetGroupName: !Ref DbSubnetGroup
       VPCSecurityGroups:
         - !Ref DatabaseSecurityGroupId
-      PubliclyAccessible: false
+      PubliclyAccessible: true
       MultiAZ: false
       BackupRetentionPeriod: 1
       DeletionProtection: false

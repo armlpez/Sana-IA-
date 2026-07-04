@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable, InternalServerErrorException, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, HttpException, Injectable, InternalServerErrorException, Logger, NotFoundException } from '@nestjs/common';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { User } from './entities/user.entity';
@@ -49,6 +49,12 @@ export class UsersService {
       return await this.userRepository.save(userInstance);
 
     } catch (error) {
+      // Domain errors (e.g. duplicate email -> ConflictException 409, missing role
+      // -> NotFoundException 404) must reach the GlobalExceptionFilter untouched so
+      // it maps them to the correct status/errorCode. Only wrap UNEXPECTED errors as 500.
+      if (error instanceof HttpException) {
+        throw error;
+      }
       this.logger.error('Error creating user', error.stack);
       throw new InternalServerErrorException('Error creating user');
     }
@@ -96,6 +102,9 @@ export class UsersService {
 
     } catch (error) {
 
+      if (error instanceof HttpException) {
+        throw error;
+      }
       this.logger.error(`Error fetching user with id ${id}`, error.stack);
       throw new InternalServerErrorException('Error fetching user');
     }
@@ -136,6 +145,9 @@ export class UsersService {
 
     } catch (error) {
 
+      if (error instanceof HttpException) {
+        throw error;
+      }
       this.logger.error(`Error updating user with id ${id}`, error.stack);
       throw new InternalServerErrorException('Error updating user');
     }
@@ -161,6 +173,9 @@ export class UsersService {
 
     } catch (error) {
 
+      if (error instanceof HttpException) {
+        throw error;
+      }
       this.logger.error(`Error removing user with id ${id}`, error.stack);
       throw new InternalServerErrorException('Error removing user');
     }

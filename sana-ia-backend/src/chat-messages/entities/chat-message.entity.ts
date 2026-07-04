@@ -37,6 +37,12 @@ export class ChatMessage {
         model?: string;
         tokensUsed?: number;
         responseTimeMs?: number;
+        // Operational diagnostics for the fallback path. Persisted so the reason a
+        // consultation shows "servicio no disponible" is queryable from the DB,
+        // without needing to grep server logs. Contains NO patient content (PHI).
+        failure?: {
+            errorKind: string;
+        };
     };
 
     @CreateDateColumn()

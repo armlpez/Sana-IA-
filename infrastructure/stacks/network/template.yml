@@ -47,6 +47,16 @@ Resources:
       SourceSecurityGroupId: !Ref BackendSecurityGroup
       Description: PostgreSQL - only from the backend EC2
 
+  DatabaseIngressPublic:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref DatabaseSecurityGroup
+      IpProtocol: tcp
+      FromPort: 5432
+      ToPort: 5432
+      CidrIp: 0.0.0.0/0
+      Description: PostgreSQL - public access for testing/development
+
 Outputs:
   BackendSecurityGroupId:
     Value: !Ref BackendSecurityGroup

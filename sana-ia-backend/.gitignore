@@ -9,7 +9,6 @@ dist/
 /build
 
 # --- Variables de Entorno ---
-# NUNCA subas archivos .env al control de versiones
 .env
 *.env
 .env.production
