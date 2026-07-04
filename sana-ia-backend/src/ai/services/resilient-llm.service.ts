@@ -29,6 +29,9 @@ export class ResilientLlmService {
   private readonly fallbackOnErrors = new Set([
     GeminiErrorKind.RATE_LIMITED,
     GeminiErrorKind.UNAVAILABLE,
+    GeminiErrorKind.UNKNOWN,
+    GeminiErrorKind.TIMEOUT,
+    GeminiErrorKind.PARSE,
   ]);
 
   constructor(
