@@ -86,7 +86,12 @@ export class ChatService {
                 errorMessage: err instanceof Error ? err.message : String(err),
             });
 
-            return this.handleChatFailure(consultation, kind, startTime);
+            return this.handleChatFailure(
+                consultation,
+                kind,
+                startTime,
+                err instanceof Error ? err.message : String(err)
+            );
         }
 
         const responseTimeMs = Date.now() - startTime;
@@ -101,7 +106,12 @@ export class ChatService {
                 consultationId: consultation.id,
                 responseTimeMs,
             });
-            return this.handleChatFailure(consultation, GeminiErrorKind.PARSE, startTime);
+            return this.handleChatFailure(
+                consultation,
+                GeminiErrorKind.PARSE,
+                startTime,
+                parseErr instanceof Error ? parseErr.message : 'Failed to parse AI response JSON'
+            );
         }
 
         // 6. Latch emergencyDetected when the model signals an emergency (monotonic flag)
@@ -197,6 +207,7 @@ export class ChatService {
         consultation: Consultation,
         kind: GeminiErrorKind,
         startTime: number,
+        errorMessage?: string,
     ): Promise<ChatResponseDto> {
         const responseTimeMs = Date.now() - startTime;
 
@@ -224,6 +235,7 @@ export class ChatService {
                 responseTimeMs,
                 failure: {
                     errorKind: kind,
+                    errorMessage: errorMessage,
                 },
             },
         });
