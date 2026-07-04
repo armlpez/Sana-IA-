@@ -1,1 +1,0 @@
-{"commands": ["echo ---DOCKER_PROCESSES---", "ps auxf | grep -i docker", "echo ---CONTAINERS---", "docker ps", "echo ---SSM_LOGS---", "tail -n 20 /var/log/amazon/ssm/amazon-ssm-agent.log"]}

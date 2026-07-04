@@ -9,4 +9,4 @@ infrastructure/samconfig.toml
 .DS_Store
 Thumbs.db
 
-.atl
+.atlcheck.json
