@@ -93,20 +93,23 @@ export class ResilientLlmService {
         const kind = this.extractErrorKind(err);
 
         if (isLast) {
+          const errMsg = this.extractMessage(err);
           this.logger.error(
-            `Provider ${provider.getName()} failed (${kind}) — chain exhausted, no more providers`,
+            `Provider ${provider.getName()} failed (${kind}) — chain exhausted, no more providers. Last error: ${errMsg}`,
           );
           throw err;
         }
 
         if (!this.fallbackOnErrors.has(kind)) {
+          const errMsg = this.extractMessage(err);
           this.logger.warn(
-            `Provider ${provider.getName()} failed (${kind}) — non-transient error, not trying further providers`,
+            `Provider ${provider.getName()} failed (${kind}) — non-transient error, not trying further providers. Error: ${errMsg}`,
           );
           throw err;
         }
 
-        this.logger.warn(`Provider ${provider.getName()} failed (${kind}), advancing to next in chain`);
+        const errMsg = this.extractMessage(err);
+        this.logger.warn(`Provider ${provider.getName()} failed (${kind}), advancing to next in chain. Error: ${errMsg}`);
       }
     }
 
@@ -126,5 +129,16 @@ export class ResilientLlmService {
       if (code === 'ERR_AI_005') return GeminiErrorKind.PARSE;
     }
     return GeminiErrorKind.UNKNOWN;
+  }
+
+  /**
+   * Extract a human-readable message from any error shape.
+   */
+  private extractMessage(err: unknown): string {
+    if (!err) return 'null/undefined';
+    if (err instanceof AppException) return err.message;
+    if (err instanceof Error) return err.message;
+    const e = err as any;
+    return e.message ?? String(err).substring(0, 200);
   }
 }

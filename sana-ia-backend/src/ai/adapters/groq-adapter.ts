@@ -82,9 +82,14 @@ export class GroqAdapter implements LlmProviderPort {
         const kind = this.classifyError(err);
         lastKind = kind;
 
+        const errDetail = this.extractErrorDetail(err);
         this.logger.error(
-          `Groq error on attempt ${attempt} — kind: ${kind}, model: ${modelName}`,
+          `Groq error on attempt ${attempt} — kind: ${kind}, model: ${modelName}, ` +
+          `status: ${errDetail.status}, message: ${errDetail.message}`,
         );
+        if (errDetail.raw) {
+          this.logger.error(`Groq raw error detail: ${errDetail.raw}`);
+        }
 
         // Retry only RATE_LIMITED and UNAVAILABLE
         const RETRYABLE = new Set([GeminiErrorKind.RATE_LIMITED, GeminiErrorKind.UNAVAILABLE]);
@@ -196,6 +201,28 @@ export class GroqAdapter implements LlmProviderPort {
         ms,
       );
     });
+  }
+
+  /**
+   * Extract structured detail from any error shape for rich logging.
+   * Handles: Groq SDK APIError, plain Error, timeout sentinel objects.
+   */
+  private extractErrorDetail(err: unknown): { status: string; message: string; raw?: string } {
+    if (!err) return { status: 'N/A', message: 'null/undefined error' };
+
+    const e = err as any;
+    const status = e.status ?? e.statusCode ?? e.httpStatus ?? 'N/A';
+    const message = e.message ?? String(err);
+    // Capture first 500 chars of the raw error body (Groq SDK exposes .error or .body)
+    let raw: string | undefined;
+    try {
+      const body = e.error ?? e.body ?? e.response?.data;
+      if (body) {
+        raw = typeof body === 'string' ? body.substring(0, 500) : JSON.stringify(body).substring(0, 500);
+      }
+    } catch { /* ignore serialization errors */ }
+
+    return { status: String(status), message: message.substring(0, 300), raw };
   }
 
   private sleep(ms: number): Promise<void> {

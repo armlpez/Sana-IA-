@@ -77,7 +77,14 @@ export class DeepSeekAdapter implements LlmProviderPort {
         const kind = this.classifyError(err);
         lastKind = kind;
 
-        this.logger.error(`DeepSeek error on attempt ${attempt} — kind: ${kind}, model: ${modelName}`);
+        const errDetail = this.extractErrorDetail(err);
+        this.logger.error(
+          `DeepSeek error on attempt ${attempt} — kind: ${kind}, model: ${modelName}, ` +
+          `status: ${errDetail.status}, message: ${errDetail.message}`,
+        );
+        if (errDetail.raw) {
+          this.logger.error(`DeepSeek raw error detail: ${errDetail.raw}`);
+        }
 
         const RETRYABLE = new Set([GeminiErrorKind.RATE_LIMITED, GeminiErrorKind.UNAVAILABLE]);
         if (!RETRYABLE.has(kind) || attempt >= this.retryMax) {
@@ -217,6 +224,29 @@ export class DeepSeekAdapter implements LlmProviderPort {
     const exponential = this.retryBaseMs * Math.pow(2, attempt - 1);
     const jitter = Math.random() * exponential;
     return Math.min(exponential + jitter, this.retryCapMs);
+  }
+
+  /**
+   * Extract structured detail from any error shape for rich logging.
+   * Handles: fetch HTTP errors, AbortError, plain Error instances.
+   */
+  private extractErrorDetail(err: unknown): { status: string; message: string; raw?: string } {
+    if (!err) return { status: 'N/A', message: 'null/undefined error' };
+
+    const e = err as any;
+    const status = e.status ?? e.statusCode ?? e.httpStatus ?? 'N/A';
+    const message = e.message ?? String(err);
+    // For fetch-based errors, the message already contains the body snippet
+    // (we set it in callWithTimeout), but also check for .body/.cause
+    let raw: string | undefined;
+    try {
+      const body = e.cause ?? e.body ?? e.response?.data;
+      if (body) {
+        raw = typeof body === 'string' ? body.substring(0, 500) : JSON.stringify(body).substring(0, 500);
+      }
+    } catch { /* ignore serialization errors */ }
+
+    return { status: String(status), message: message.substring(0, 300), raw };
   }
 
   private sleep(ms: number): Promise<void> {

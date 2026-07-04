@@ -110,9 +110,14 @@ export class GeminiClientService {
                 const kind = classifyGeminiError(err);
                 lastKind = kind;
 
+                const errDetail = this.extractErrorDetail(err);
                 this.logger.error(
-                    `Gemini error on attempt ${attempt} — kind: ${kind}, model: ${modelName}`,
+                    `Gemini error on attempt ${attempt} — kind: ${kind}, model: ${modelName}, ` +
+                    `status: ${errDetail.status}, message: ${errDetail.message}`,
                 );
+                if (errDetail.raw) {
+                    this.logger.error(`Gemini raw error detail: ${errDetail.raw}`);
+                }
 
                 if (!RETRYABLE_KINDS.has(kind) || attempt >= this.retryMax) {
                     throw this.toAppException(kind, attempt);
@@ -197,6 +202,28 @@ export class GeminiClientService {
 
     private sleep(ms: number): Promise<void> {
         return new Promise((resolve) => setTimeout(resolve, ms));
+    }
+
+    /**
+     * Extract structured detail from any error shape for rich logging.
+     * Handles: Gemini SDK GoogleGenerativeAIError, plain Error, timeout sentinel objects.
+     */
+    private extractErrorDetail(err: unknown): { status: string; message: string; raw?: string } {
+        if (!err) return { status: 'N/A', message: 'null/undefined error' };
+
+        const e = err as any;
+        const status = e.status ?? e.statusCode ?? e.httpStatus ?? e.code ?? 'N/A';
+        const message = e.message ?? String(err);
+        // Gemini SDK errors may expose .errorDetails or .response
+        let raw: string | undefined;
+        try {
+            const details = e.errorDetails ?? e.response?.data ?? e.cause;
+            if (details) {
+                raw = typeof details === 'string' ? details.substring(0, 500) : JSON.stringify(details).substring(0, 500);
+            }
+        } catch { /* ignore serialization errors */ }
+
+        return { status: String(status), message: message.substring(0, 300), raw };
     }
 
     private toAppException(kind: GeminiErrorKind, attempt: number): AppException {
