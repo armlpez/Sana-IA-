@@ -80,7 +80,7 @@ export class SafeFallbackBuilder {
 
         const message =
             emergencyDetected === true
-                ? 'Acudí a urgencias de inmediato. Dado que previamente detectamos señales de emergencia, no podemos darte orientación adicional en este momento.'
+                ? 'Nuestro sistema está experimentando demoras. Por precaución, debido a los síntomas que nos comentó, le recomendamos contactar a un profesional de la salud'
                 : 'Nuestro sistema de análisis no está disponible en este momento. Si tenés síntomas preocupantes, consultá a un médico. Por favor, intentá de nuevo en unos minutos.';
 
         return {
