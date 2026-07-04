@@ -23,4 +23,11 @@ export interface LlmProviderPort {
    * Returns the provider name for logging/observability.
    */
   getName(): string;
+
+  /**
+   * Whether this provider can accept image parts (Gemini inlineData / OpenAI
+   * image_url). ResilientLlmService uses this to skip text-only providers when
+   * routing a multimodal prompt (e.g. OCR) through the fallback chain.
+   */
+  supportsVision(): boolean;
 }

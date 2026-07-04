@@ -31,6 +31,7 @@ function createConfigService(overrides: Record<string, unknown> = {}): ConfigSer
             groqModelCollecting: 'llama-3.3-70b-versatile',
             groqModelAnalyzing: 'llama-3.3-70b-versatile',
             groqModelCompleted: 'llama-3.3-70b-versatile',
+            groqModelVision: 'qwen/qwen3.6-27b',
             timeoutFastMs: 200,
             timeoutSlowMs: 500,
             groqRetryMax: 1,
@@ -60,6 +61,41 @@ describe('GroqAdapter', () => {
 
     it('reports its provider name as "groq"', () => {
         expect(adapter.getName()).toBe('groq');
+    });
+
+    it('reports vision support', () => {
+        expect(adapter.supportsVision()).toBe(true);
+    });
+
+    it('converts Gemini Part[] prompts to OpenAI vision format and uses the vision model', async () => {
+        mockCreate.mockResolvedValueOnce({
+            choices: [{ message: { content: '{"biomarkers":[]}' } }],
+        });
+
+        const parts = [
+            { text: 'extrae biomarcadores' },
+            { inlineData: { data: 'abc123', mimeType: 'image/png' } },
+        ];
+        const result = await adapter.generateWithResilience(MODEL_TIER_PRO, parts);
+
+        expect(result).toBe('{"biomarkers":[]}');
+        expect(mockCreate).toHaveBeenCalledWith(
+            expect.objectContaining({
+                model: 'qwen/qwen3.6-27b',
+                messages: [
+                    {
+                        role: 'user',
+                        content: [
+                            { type: 'text', text: 'extrae biomarcadores' },
+                            {
+                                type: 'image_url',
+                                image_url: { url: 'data:image/png;base64,abc123' },
+                            },
+                        ],
+                    },
+                ],
+            }),
+        );
     });
 
     describe('generateWithResilience', () => {

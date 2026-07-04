@@ -9,7 +9,7 @@ import { MessageRole } from '../chat-messages/enums/message-role.enum';
 import { ChatInputDto } from '../consultations/dto/chat-input.dto';
 import { ChatResponseDto } from '../consultations/dto/chat-response.dto';
 import { SANA_CHAT_SYSTEM_PROMPT } from './prompts/chat-system-prompt';
-import { ResilientLlmService } from './services/resilient-llm.service';
+import { ResilientLlmService, getLlmFailureDiagnostics, LlmFailureDiagnostics } from './services/resilient-llm.service';
 import { SafeFallbackBuilder, ChatFallbackShape } from './utils/safe-fallback.builder';
 import { GeminiErrorKind } from './utils/gemini-error-kind';
 import { classifyGeminiError } from './utils/error-classifier';
@@ -77,6 +77,9 @@ export class ChatService {
                 ? this.kindFromAppException(err)
                 : classifyGeminiError(err);
 
+            // Which model(s) the resilient chain tried, and which one finally failed.
+            const diagnostics = getLlmFailureDiagnostics(err);
+
             // Log detailed error info server-side
             this.logger.error('Gemini call failed in chat', {
                 consultationId: consultation.id,
@@ -84,13 +87,16 @@ export class ChatService {
                 errorKind: kind,
                 errorType: err instanceof Error ? err.constructor.name : typeof err,
                 errorMessage: err instanceof Error ? err.message : String(err),
+                failedProvider: diagnostics?.failedProvider,
+                attemptedProviders: diagnostics?.attemptedProviders,
             });
 
             return this.handleChatFailure(
                 consultation,
                 kind,
                 startTime,
-                err instanceof Error ? err.message : String(err)
+                err instanceof Error ? err.message : String(err),
+                diagnostics,
             );
         }
 
@@ -208,6 +214,7 @@ export class ChatService {
         kind: GeminiErrorKind,
         startTime: number,
         errorMessage?: string,
+        diagnostics?: LlmFailureDiagnostics,
     ): Promise<ChatResponseDto> {
         const responseTimeMs = Date.now() - startTime;
 
@@ -220,13 +227,16 @@ export class ChatService {
         this.logger.warn('Chat fallback triggered', {
             consultationId: consultation.id,
             errorKind: kind,
+            failedProvider: diagnostics?.failedProvider,
+            attemptedProviders: diagnostics?.attemptedProviders,
             priorEmergency: consultation.emergencyDetected,
             responseTimeMs,
         });
 
         // Save the fallback message so the conversation record is complete.
         // Persist the errorKind so operators can tell WHY the fallback fired
-        // (RATE_LIMITED, TIMEOUT, PARSE, ...) directly from the DB — no log grep needed.
+        // (RATE_LIMITED, TIMEOUT, PARSE, ...) and WHICH model failed (failedProvider)
+        // directly from the DB — no log grep needed.
         const assistantMsg = this.chatMessageRepo.create({
             consultationId: consultation.id,
             role: MessageRole.ASSISTANT,
@@ -236,6 +246,8 @@ export class ChatService {
                 failure: {
                     errorKind: kind,
                     errorMessage: errorMessage,
+                    failedProvider: diagnostics?.failedProvider,
+                    attemptedProviders: diagnostics?.attemptedProviders,
                 },
             },
         });

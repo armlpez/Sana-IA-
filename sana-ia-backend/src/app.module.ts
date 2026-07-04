@@ -52,6 +52,7 @@ import aiModelsConfig from './ai/config/model-tiers.config';
           host: config.get('redis.host'),
           port: config.get('redis.port'),
           password: config.get('redis.password'),
+          family: 4, // Force IPv4 to avoid Alpine musl dns.lookup bug with single-label hostnames
         },
       }),
     }),

@@ -143,6 +143,44 @@ describe('ChatService — Emergency Latch', () => {
         expect(diagnosisRepo.save).not.toHaveBeenCalled();
     });
 
+    it('persists the failed model + attempted chain into the fallback message metadata', async () => {
+        const consultation = {
+            id: 42,
+            userId: 100,
+            status: 'collecting',
+            emergencyDetected: false,
+            summary: '{}',
+        };
+
+        (consultationRepo.findOne as jest.Mock).mockResolvedValue(consultation);
+        // Echo back what the service builds so we can assert on the metadata.
+        (chatMessageRepo.create as jest.Mock).mockImplementation((entity) => entity);
+        (chatMessageRepo.save as jest.Mock).mockResolvedValue({});
+
+        // The resilient chain exhausted all providers — the thrown error carries
+        // the diagnostics that getLlmFailureDiagnostics() reads.
+        const chainError: any = new Error('all providers failed');
+        chainError.llmDiagnostics = {
+            attemptedProviders: ['gemini', 'groq', 'cerebras'],
+            failedProvider: 'cerebras',
+        };
+        resilientLlmService.generateWithFallback.mockRejectedValue(chainError);
+
+        await chatService.sendMessage(100, { conversationId: 42, message: 'hola' });
+
+        // The assistant fallback message must record WHICH model failed.
+        expect(chatMessageRepo.create).toHaveBeenCalledWith(
+            expect.objectContaining({
+                metadata: expect.objectContaining({
+                    failure: expect.objectContaining({
+                        failedProvider: 'cerebras',
+                        attemptedProviders: ['gemini', 'groq', 'cerebras'],
+                    }),
+                }),
+            }),
+        );
+    });
+
     it('should never reset emergencyDetected back to false', async () => {
         const consultation = {
             id: 1,

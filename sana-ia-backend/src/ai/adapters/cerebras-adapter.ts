@@ -23,8 +23,7 @@ export class CerebrasAdapter implements LlmProviderPort {
   private readonly logger = new Logger(CerebrasAdapter.name);
   private readonly apiKey: string;
 
-  // Model tier mapping (cerebras-specific — cerebras-chat/cerebras-reasoner are
-  // deprecated 2026-07-24, so we go straight to the v4 model line).
+  // Model tier mapping (Cerebras-specific — text-only Llama/Qwen models).
   private readonly modelFast: string;
   private readonly modelMid: string;
   private readonly modelSlow: string;
@@ -37,15 +36,20 @@ export class CerebrasAdapter implements LlmProviderPort {
   private readonly retryCapMs: number;
 
   constructor(private readonly configService: ConfigService) {
-    this.apiKey = this.configService.get<string>('cerebras_API_KEY') ?? '';
+    // CEREBRAS_API_KEY is canonical; cerebras_API_KEY kept for deployed .env compatibility
+    this.apiKey =
+      this.configService.get<string>('CEREBRAS_API_KEY') ??
+      this.configService.get<string>('cerebras_API_KEY') ??
+      '';
     if (!this.apiKey) {
-      this.logger.warn('cerebras_API_KEY not configured — CerebrasAdapter will not function.');
+      this.logger.warn('CEREBRAS_API_KEY not configured — CerebrasAdapter will not function.');
     }
 
     const cfg = this.configService.get<Record<string, unknown>>('aiModels') ?? {};
-    this.modelFast = (cfg['cerebrasModelCollecting'] as string | undefined) ?? 'cerebras-v4-flash';
-    this.modelMid = (cfg['cerebrasModelAnalyzing'] as string | undefined) ?? 'cerebras-v4-flash';
-    this.modelSlow = (cfg['cerebrasModelCompleted'] as string | undefined) ?? 'cerebras-v4-pro';
+    // Defaults are real Cerebras model IDs — 'cerebras-v4-*' does not exist.
+    this.modelFast = (cfg['cerebrasModelCollecting'] as string | undefined) ?? 'llama3.1-8b';
+    this.modelMid = (cfg['cerebrasModelAnalyzing'] as string | undefined) ?? 'llama3.1-8b';
+    this.modelSlow = (cfg['cerebrasModelCompleted'] as string | undefined) ?? 'llama-3.3-70b';
 
     this.timeoutFastMs = (cfg['timeoutFastMs'] as number | undefined) ?? 8000;
     this.timeoutSlowMs = (cfg['timeoutSlowMs'] as number | undefined) ?? 25000;
@@ -100,6 +104,10 @@ export class CerebrasAdapter implements LlmProviderPort {
 
   getName(): string {
     return 'cerebras';
+  }
+
+  supportsVision(): boolean {
+    return false; // Cerebras inference is text-only — no image input support
   }
 
   // ========== Private helpers ==========

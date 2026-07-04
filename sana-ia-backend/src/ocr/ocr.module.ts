@@ -24,7 +24,7 @@ import { OCR_QUEUE_NAME } from './ocr.job';
                 removeOnFail: { age: 86400 }, // Keep failed jobs 24h for debugging
             },
         }),
-        // Import AiModule to use GeminiClientService in the worker
+        // Import AiModule to use ResilientLlmService (multi-provider chain) in the worker
         AiModule,
         StorageModule,
     ],

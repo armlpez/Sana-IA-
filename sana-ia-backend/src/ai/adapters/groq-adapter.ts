@@ -7,6 +7,7 @@ import { GeminiErrorKind } from '../utils/gemini-error-kind';
 import { classifyGeminiError } from '../utils/error-classifier';
 import { AppException } from '../../common/exceptions/app-exception';
 import { ErrorCode } from '../../common/enums/error-codes.enum';
+import { isMultimodalPrompt, partsToOpenAiContent } from '../utils/multimodal.util';
 
 /**
  * Groq Adapter — implements LlmProviderPort for Groq's LPU-based inference.
@@ -24,6 +25,7 @@ export class GroqAdapter implements LlmProviderPort {
   private readonly modelFast: string;
   private readonly modelMid: string;
   private readonly modelSlow: string;
+  private readonly modelVision: string;
 
   // Timeout config (reuse from Gemini config for consistency)
   private readonly timeoutFastMs: number;
@@ -47,6 +49,10 @@ export class GroqAdapter implements LlmProviderPort {
     this.modelFast = (cfg['groqModelCollecting'] as string | undefined) ?? 'llama-3.3-70b-versatile';
     this.modelMid = (cfg['groqModelAnalyzing'] as string | undefined) ?? 'llama-3.3-70b-versatile';
     this.modelSlow = (cfg['groqModelCompleted'] as string | undefined) ?? 'llama-3.3-70b-versatile';
+    // Vision model for multimodal (OCR) prompts. llama-3.3-70b is text-only;
+    // qwen3.6-27b is Groq's currently-supported multimodal model
+    // (llama-3.2-*-vision-preview and llama-4-scout are deprecated/decommissioned).
+    this.modelVision = (cfg['groqModelVision'] as string | undefined) ?? 'qwen/qwen3.6-27b';
 
     // Reuse timeout from Gemini config for consistency
     this.timeoutFastMs = (cfg['timeoutFastMs'] as number | undefined) ?? 8000;
@@ -58,8 +64,11 @@ export class GroqAdapter implements LlmProviderPort {
   }
 
   async generateWithResilience(tier: ModelTier, prompt: string | any[]): Promise<string> {
-    const modelName = this.resolveModelName(tier);
-    const timeoutMs = this.resolveTimeout(tier);
+    // Multimodal prompts need a vision-capable model regardless of tier,
+    // and always get the slow timeout budget (image processing is not fast-tier work).
+    const multimodal = isMultimodalPrompt(prompt);
+    const modelName = multimodal ? this.modelVision : this.resolveModelName(tier);
+    const timeoutMs = multimodal ? this.timeoutSlowMs : this.resolveTimeout(tier);
 
     let lastKind: GeminiErrorKind = GeminiErrorKind.UNKNOWN;
     let attempt = 0;
@@ -108,6 +117,10 @@ export class GroqAdapter implements LlmProviderPort {
     return 'groq';
   }
 
+  supportsVision(): boolean {
+    return true; // via the configured vision model (qwen/qwen3.6-27b by default)
+  }
+
   // ========== Private helpers ==========
 
   private resolveModelName(tier: ModelTier): string {
@@ -123,10 +136,12 @@ export class GroqAdapter implements LlmProviderPort {
   }
 
   private async callWithTimeout(modelName: string, prompt: string | any[], timeoutMs: number): Promise<string> {
+    // Gemini Part[] prompts must be converted to OpenAI-style content
+    // ({type:'text'} / {type:'image_url'}) — Groq rejects Gemini's raw shape.
     const messages: any[] =
       typeof prompt === 'string'
         ? [{ role: 'user', content: prompt }]
-        : [{ role: 'user', content: prompt as any }];
+        : [{ role: 'user', content: partsToOpenAiContent(prompt) }];
 
     const racePromise = Promise.race([
       this.client.chat.completions.create({

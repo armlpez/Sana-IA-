@@ -20,7 +20,7 @@ services:
     profiles: ["cloud"]
     env_file: .env
     environment:
-      REDIS_HOST: redis
+      REDIS_HOST: sana-redis
     ports:
       - "3000:3000"
     depends_on:

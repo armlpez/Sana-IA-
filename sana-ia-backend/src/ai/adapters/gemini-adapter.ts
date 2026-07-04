@@ -18,4 +18,8 @@ export class GeminiAdapter implements LlmProviderPort {
   getName(): string {
     return 'gemini';
   }
+
+  supportsVision(): boolean {
+    return true; // Gemini Vision handles inlineData parts natively
+  }
 }

@@ -6,7 +6,7 @@ import { Job } from 'bullmq';
 import { OCR_QUEUE_NAME, OcrJobPayload } from './ocr.job';
 import { OcrResult } from './entities/ocr-result.entity';
 import { OcrJobStatus } from './enums/ocr-job-status.enum';
-import { GeminiClientService } from '../ai/services/gemini-client.service';
+import { ResilientLlmService } from '../ai/services/resilient-llm.service';
 import { STORAGE_PORT } from '../storage/storage.port';
 import type { StoragePort } from '../storage/storage.port';
 import { extractMimeType } from '../storage/utils/mime.util';
@@ -19,7 +19,8 @@ import { Part } from '@google/generative-ai';
  * Flow:
  * 1. Reads the OcrResult row from Postgres (gets imagePath)
  * 2. Loads the image from local storage
- * 3. Sends to Gemini Vision for biomarker extraction
+ * 3. Sends to the resilient LLM chain (Gemini Vision → Groq vision fallback;
+ *    text-only providers like Cerebras are skipped for image prompts)
  * 4. Parses the structured response
  * 5. Writes extractedData back to the OcrResult row
  *
@@ -35,7 +36,7 @@ export class OcrWorker extends WorkerHost {
     constructor(
         @InjectRepository(OcrResult)
         private readonly ocrResultRepo: Repository<OcrResult>,
-        private readonly geminiClient: GeminiClientService,
+        private readonly resilientLlm: ResilientLlmService,
         @Inject(STORAGE_PORT) private readonly storage: StoragePort,
     ) {
         super();
@@ -70,10 +71,10 @@ export class OcrWorker extends WorkerHost {
             // 4. Build prompt for Gemini Vision
             const prompt = this.buildOcrPrompt(base64Image, mimeType);
 
-            // 5. Call Gemini via resilience layer
-            // MODEL_TIER_PRO → timeoutSlowMs (30s) to accommodate Gemini Vision OCR (8-15s typical).
+            // 5. Call the multi-provider fallback chain (Gemini → Groq vision).
+            // MODEL_TIER_PRO → timeoutSlowMs (30s) to accommodate Vision OCR (8-15s typical).
             // The fast tier (8s) is too tight for image processing.
-            const rawText = await this.geminiClient.generateWithResilience(
+            const rawText = await this.resilientLlm.generateWithFallback(
                 MODEL_TIER_PRO,
                 prompt,
             );

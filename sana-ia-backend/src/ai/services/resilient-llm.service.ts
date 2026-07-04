@@ -4,6 +4,40 @@ import { LlmProviderPort, LLM_PROVIDER_PORT } from '../ports/llm-provider.port';
 import { ModelTier } from '../config/model-tiers.config';
 import { GeminiErrorKind } from '../utils/gemini-error-kind';
 import { AppException } from '../../common/exceptions/app-exception';
+import { ErrorCode } from '../../common/enums/error-codes.enum';
+import { isMultimodalPrompt } from '../utils/multimodal.util';
+
+/**
+ * Diagnostics attached to the error thrown by generateWithFallback when the
+ * provider chain fails. Lets callers persist WHICH model failed (and the full
+ * chain that was attempted) into chat_message metadata — no log grep needed.
+ *
+ * Contains provider NAMES only (gemini/groq/cerebras) — never patient content.
+ */
+export interface LlmFailureDiagnostics {
+  /** Providers actually attempted, in chain order (e.g. ['gemini','groq','cerebras']). */
+  attemptedProviders: string[];
+  /** The provider whose failure finally broke the chain (the last one tried). */
+  failedProvider: string;
+}
+
+/** Non-enumerable-ish property key carrying LlmFailureDiagnostics on a thrown error. */
+const LLM_DIAGNOSTICS_KEY = 'llmDiagnostics';
+
+/**
+ * Reads the LlmFailureDiagnostics that ResilientLlmService attached to a thrown
+ * error, if present. Returns undefined for errors that did not originate from
+ * the provider chain (e.g. a JSON parse failure after a successful LLM call).
+ */
+export function getLlmFailureDiagnostics(err: unknown): LlmFailureDiagnostics | undefined {
+  if (err && typeof err === 'object' && LLM_DIAGNOSTICS_KEY in err) {
+    const diag = (err as Record<string, unknown>)[LLM_DIAGNOSTICS_KEY];
+    if (diag && typeof diag === 'object' && 'failedProvider' in diag) {
+      return diag as LlmFailureDiagnostics;
+    }
+  }
+  return undefined;
+}
 
 /**
  * ResilientLlmService — orchestrates multi-provider LLM fallback across an ordered chain.
@@ -72,13 +106,36 @@ export class ResilientLlmService {
    * chain is exhausted — in which case the caller uses SafeFallbackBuilder.
    */
   async generateWithFallback(tier: ModelTier, prompt: string | any[]): Promise<string> {
-    const chain = [this.primaryProvider, ...this.fallbackChain];
+    let chain = [this.primaryProvider, ...this.fallbackChain];
+
+    // Multimodal prompts (OCR images) can only be served by vision-capable
+    // providers — skip text-only ones (e.g. Cerebras) instead of letting them
+    // silently drop the image and hallucinate biomarkers.
+    if (isMultimodalPrompt(prompt)) {
+      const skipped = chain.filter((p) => !p.supportsVision()).map((p) => p.getName());
+      chain = chain.filter((p) => p.supportsVision());
+
+      if (skipped.length > 0) {
+        this.logger.log(`Multimodal prompt — skipping text-only providers: [${skipped.join(', ')}]`);
+      }
+      if (chain.length === 0) {
+        throw new AppException({
+          errorCode: ErrorCode.AI_UNAVAILABLE,
+          message: 'No vision-capable LLM provider is configured for multimodal prompts.',
+          statusCode: 500,
+        });
+      }
+    }
 
     let lastErr: unknown;
+    // Providers we actually try, in order — attached to the thrown error so the
+    // caller can persist which model(s) failed into chat_message metadata.
+    const attempted: string[] = [];
 
     for (let i = 0; i < chain.length; i++) {
       const provider = chain[i];
       const isLast = i === chain.length - 1;
+      attempted.push(provider.getName());
 
       if (i === 0) {
         this.logger.log(`Trying primary LLM: ${provider.getName()}`);
@@ -95,9 +152,10 @@ export class ResilientLlmService {
         if (isLast) {
           const errMsg = this.extractMessage(err);
           this.logger.error(
-            `Provider ${provider.getName()} failed (${kind}) — chain exhausted, no more providers. Last error: ${errMsg}`,
+            `Provider ${provider.getName()} failed (${kind}) — chain exhausted, no more providers. ` +
+              `Attempted: [${attempted.join(' -> ')}]. Last error: ${errMsg}`,
           );
-          throw err;
+          throw this.attachDiagnostics(err, attempted, provider.getName());
         }
 
         if (!this.fallbackOnErrors.has(kind)) {
@@ -105,7 +163,7 @@ export class ResilientLlmService {
           this.logger.warn(
             `Provider ${provider.getName()} failed (${kind}) — non-transient error, not trying further providers. Error: ${errMsg}`,
           );
-          throw err;
+          throw this.attachDiagnostics(err, attempted, provider.getName());
         }
 
         const errMsg = this.extractMessage(err);
@@ -115,6 +173,33 @@ export class ResilientLlmService {
 
     // Unreachable (loop always returns or throws), but keeps TypeScript satisfied.
     throw lastErr;
+  }
+
+  /**
+   * Attaches provider diagnostics (which chain was tried, which model failed)
+   * to the error object before it propagates. The caller (ChatService) reads
+   * these via getLlmFailureDiagnostics() and persists them to metadata.
+   *
+   * We mutate the existing error rather than wrapping it so the original
+   * AppException.errorCode survives for downstream error-kind classification.
+   */
+  private attachDiagnostics(
+    err: unknown,
+    attempted: string[],
+    failedProvider: string,
+  ): unknown {
+    if (err && typeof err === 'object') {
+      const diagnostics: LlmFailureDiagnostics = {
+        attemptedProviders: [...attempted],
+        failedProvider,
+      };
+      try {
+        (err as Record<string, unknown>)[LLM_DIAGNOSTICS_KEY] = diagnostics;
+      } catch {
+        // Frozen/sealed error — diagnostics stay in the logs above; don't mask the error.
+      }
+    }
+    return err;
   }
 
   /**

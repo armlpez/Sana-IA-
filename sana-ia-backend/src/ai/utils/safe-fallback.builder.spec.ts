@@ -94,14 +94,16 @@ describe('SafeFallbackBuilder', () => {
     });
 
     describe('forChat', () => {
-        it('should return urgencias message when emergencyDetected=true', () => {
+        it('should recommend contacting a health professional when emergencyDetected=true', () => {
             const result = SafeFallbackBuilder.forChat({
                 emergencyDetected: true,
                 kind: GeminiErrorKind.PARSE,
             });
 
-            expect(result.message).toContain('urgencias');
-            expect(result.message).toContain('emergencia');
+            // Softened wording (commit 19f85d0): no longer says "urgencias",
+            // but must still escalate to a health professional out of caution.
+            expect(result.message).toContain('profesional de la salud');
+            expect(result.message).toContain('precaución');
         });
 
         it('should return neutral retry message when emergencyDetected=false', () => {

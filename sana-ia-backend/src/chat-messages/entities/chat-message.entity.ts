@@ -42,6 +42,14 @@ export class ChatMessage {
         // without needing to grep server logs. Contains NO patient content (PHI).
         failure?: {
             errorKind: string;
+            // Provider error message (sanitized, no PHI) — set by handleChatFailure
+            errorMessage?: string;
+            // Which LLM model finally broke the chain (e.g. 'cerebras'), and the
+            // full ordered chain that was attempted (e.g. ['gemini','groq','cerebras']).
+            // Provider names only — never PHI. Lets operators tell WHICH model failed
+            // straight from the DB. Absent when the failure is not chain-related (e.g. PARSE).
+            failedProvider?: string;
+            attemptedProviders?: string[];
         };
     };
 

@@ -1,8 +1,8 @@
-﻿const fs = require('fs');
+const fs = require('fs');
 
 async function run() {
     console.log("1. Autenticando...");
-    let res = await fetch("http://44.198.177.129:3000/v1/auth/login", {
+    let res = await fetch("http://127.0.0.1:3000/v1/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: "user@gmail.com", password: "12345678" })
@@ -23,7 +23,7 @@ async function run() {
         const body = { message: msg };
         if (convId) body.conversationId = convId;
 
-        res = await fetch("http://44.198.177.129:3000/v1/ai/chat", {
+        res = await fetch("http://localhost:3000/v1/ai/chat", {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
