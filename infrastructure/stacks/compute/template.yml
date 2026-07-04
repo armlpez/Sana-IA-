@@ -32,6 +32,10 @@ Parameters:
     Type: String
   GeminiApiKeySecretArn:
     Type: String
+  GroqApiKeySecretArn:
+    Type: String
+  CerebrasApiKeySecretArn:
+    Type: String
   DbEndpointAddress:
     Type: String
   DbEndpointPort:
@@ -130,6 +134,8 @@ Resources:
           JWT_SECRET=$(get_secret "${JwtAccessSecretArn}")
           JWT_REFRESH_SECRET=$(get_secret "${JwtRefreshSecretArn}")
           GEMINI_API_KEY=$(get_secret "${GeminiApiKeySecretArn}")
+          GROQ_API_KEY=$(get_secret "${GroqApiKeySecretArn}")
+          CEREBRAS_API_KEY=$(get_secret "${CerebrasApiKeySecretArn}")
 
           AUTH_REPO_URL=$(echo "$REPO_URL" | sed "s#https://#https://x-access-token:$GITHUB_TOKEN@#")
 
@@ -157,10 +163,29 @@ Resources:
           NODE_ENV=production
           JWT_SECRET=$JWT_SECRET
           JWT_REFRESH_SECRET=$JWT_REFRESH_SECRET
+          LLM_PRIMARY_PROVIDER=gemini
+          LLM_FALLBACK_CHAIN=groq,cerebras
           GEMINI_API_KEY=$GEMINI_API_KEY
-          GEMINI_MODEL_COLLECTING=gemini-2.0-flash-lite
-          GEMINI_MODEL_ANALYZING=gemini-2.0-flash
-          GEMINI_MODEL_COMPLETED=gemini-1.5-pro
+          GEMINI_MODEL_COLLECTING=gemini-2.5-flash-lite
+          GEMINI_MODEL_ANALYZING=gemini-2.5-flash
+          GEMINI_MODEL_COMPLETED=gemini-2.5-flash
+          GROQ_API_KEY=$GROQ_API_KEY
+          GROQ_MODEL_COLLECTING=llama-3.3-70b-versatile
+          GROQ_MODEL_ANALYZING=llama-3.3-70b-versatile
+          GROQ_MODEL_COMPLETED=llama-3.3-70b-versatile
+          GROQ_MODEL_VISION=qwen/qwen3.6-27b
+          CEREBRAS_API_KEY=$CEREBRAS_API_KEY
+          CEREBRAS_MODEL_COLLECTING=gpt-oss-120b
+          CEREBRAS_MODEL_ANALYZING=gpt-oss-120b
+          CEREBRAS_MODEL_COMPLETED=gpt-oss-120b
+          GEMINI_TIMEOUT_FAST_MS=8000
+          GEMINI_TIMEOUT_SLOW_MS=30000
+          GEMINI_RETRY_MAX=2
+          GROQ_RETRY_MAX=0
+          CEREBRAS_RETRY_MAX=0
+          GEMINI_RETRY_BASE_MS=500
+          GEMINI_RETRY_CAP_MS=4000
+          CHAT_RATE_LIMIT_PER_MIN=12
           REDIS_HOST=redis
           REDIS_PORT=6379
           STORAGE_TYPE=${StorageType}

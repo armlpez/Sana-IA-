@@ -58,6 +58,24 @@ Parameters:
       - s3
     Description: Start with 'local' to validate the deploy, then flip to 's3' once the S3 adapter is confirmed working
 
+  # External LLM API key values — set in samconfig.toml (gitignored). NoEcho keeps
+  # them out of CloudFormation console/events. They seed the Secrets Manager secrets.
+  GeminiApiKey:
+    Type: String
+    NoEcho: true
+    Default: "REPLACE_ME_AFTER_DEPLOY"
+    Description: Google Gemini API key (set in samconfig)
+  GroqApiKey:
+    Type: String
+    NoEcho: true
+    Default: "REPLACE_ME_AFTER_DEPLOY"
+    Description: Groq API key (set in samconfig)
+  CerebrasApiKey:
+    Type: String
+    NoEcho: true
+    Default: "REPLACE_ME_AFTER_DEPLOY"
+    Description: Cerebras API key (set in samconfig)
+
 Resources:
   SanaNetwork:
     Type: AWS::Serverless::Application
@@ -74,6 +92,9 @@ Resources:
       Location: stacks/secretsManager/template.yml
       Parameters:
         Env: !Ref Env
+        GeminiApiKey: !Ref GeminiApiKey
+        GroqApiKey: !Ref GroqApiKey
+        CerebrasApiKey: !Ref CerebrasApiKey
 
   SanaStorage:
     Type: AWS::Serverless::Application
@@ -93,6 +114,8 @@ Resources:
         JwtRefreshSecretArn: !GetAtt SanaSecrets.Outputs.JwtRefreshSecretArn
         GeminiApiKeySecretArn: !GetAtt SanaSecrets.Outputs.GeminiApiKeySecretArn
         GitHubPatSecretArn: !GetAtt SanaSecrets.Outputs.GitHubPatSecretArn
+        GroqApiKeySecretArn: !GetAtt SanaSecrets.Outputs.GroqApiKeySecretArn
+        CerebrasApiKeySecretArn: !GetAtt SanaSecrets.Outputs.CerebrasApiKeySecretArn
         LabsBucketArn: !GetAtt SanaStorage.Outputs.BucketArn
 
   SanaDatabase:
@@ -124,6 +147,8 @@ Resources:
         JwtAccessSecretArn: !GetAtt SanaSecrets.Outputs.JwtAccessSecretArn
         JwtRefreshSecretArn: !GetAtt SanaSecrets.Outputs.JwtRefreshSecretArn
         GeminiApiKeySecretArn: !GetAtt SanaSecrets.Outputs.GeminiApiKeySecretArn
+        GroqApiKeySecretArn: !GetAtt SanaSecrets.Outputs.GroqApiKeySecretArn
+        CerebrasApiKeySecretArn: !GetAtt SanaSecrets.Outputs.CerebrasApiKeySecretArn
         DbEndpointAddress: !GetAtt SanaDatabase.Outputs.DbEndpointAddress
         DbEndpointPort: !GetAtt SanaDatabase.Outputs.DbEndpointPort
         DBName: !Ref DBName

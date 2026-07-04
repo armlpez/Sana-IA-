@@ -15,6 +15,10 @@ Parameters:
     Type: String
   GitHubPatSecretArn:
     Type: String
+  GroqApiKeySecretArn:
+    Type: String
+  CerebrasApiKeySecretArn:
+    Type: String
   LabsBucketArn:
     Type: String
 
@@ -46,6 +50,8 @@ Resources:
                   - !Ref JwtRefreshSecretArn
                   - !Ref GeminiApiKeySecretArn
                   - !Ref GitHubPatSecretArn
+                  - !Ref GroqApiKeySecretArn
+                  - !Ref CerebrasApiKeySecretArn
         - PolicyName: SanaS3LabsAccess
           PolicyDocument:
             Version: "2012-10-17"
