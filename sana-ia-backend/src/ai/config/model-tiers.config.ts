@@ -59,14 +59,15 @@ export default registerAs('aiModels', () => ({
     cerebrasModelAnalyzing: process.env.CEREBRAS_MODEL_ANALYZING ?? 'llama3.1-8b',
     cerebrasModelCompleted: process.env.CEREBRAS_MODEL_COMPLETED ?? 'llama-3.3-70b',
 
-    // Bedrock (Amazon Nova) model IDs per tier. These are cross-region inference
-    // profiles (us.amazon.nova-*) — Nova does NOT support invoking the bare
-    // foundation-model ID on-demand. Nova Micro is text-only and the cheapest;
-    // Nova Lite is multimodal, used for the completed tier and all vision (OCR) calls.
-    bedrockModelCollecting: process.env.BEDROCK_MODEL_COLLECTING ?? 'us.amazon.nova-micro-v1:0',
-    bedrockModelAnalyzing: process.env.BEDROCK_MODEL_ANALYZING ?? 'us.amazon.nova-micro-v1:0',
-    bedrockModelCompleted: process.env.BEDROCK_MODEL_COMPLETED ?? 'us.amazon.nova-lite-v1:0',
-    bedrockModelVision: process.env.BEDROCK_MODEL_VISION ?? 'us.amazon.nova-lite-v1:0',
+    // Bedrock Mantle model IDs per tier (OpenAI-compatible gateway to
+    // third-party/open-weight models — NOT the classic Nova/Bedrock Runtime,
+    // which this account can't authorize; see BedrockAdapter's doc comment).
+    // GPT-OSS 20B for fast/mid (cheap), 120B for the completed tier (quality),
+    // Qwen3-VL for vision/OCR (the only one of the three that's multimodal).
+    bedrockModelCollecting: process.env.BEDROCK_MODEL_COLLECTING ?? 'openai.gpt-oss-20b',
+    bedrockModelAnalyzing: process.env.BEDROCK_MODEL_ANALYZING ?? 'openai.gpt-oss-20b',
+    bedrockModelCompleted: process.env.BEDROCK_MODEL_COMPLETED ?? 'openai.gpt-oss-120b',
+    bedrockModelVision: process.env.BEDROCK_MODEL_VISION ?? 'qwen.qwen3-vl-235b-a22b-instruct',
 
     // Timeout per tier group (ms)
     // OCR (Gemini Vision, 8-15s typical) uses MODEL_TIER_PRO → timeoutSlowMs.

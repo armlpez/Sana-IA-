@@ -75,6 +75,11 @@ Parameters:
     NoEcho: true
     Default: "REPLACE_ME_AFTER_DEPLOY"
     Description: Cerebras API key (set in samconfig)
+  BedrockMantleApiKey:
+    Type: String
+    NoEcho: true
+    Default: "REPLACE_ME_AFTER_DEPLOY"
+    Description: Bedrock Mantle API key — Bearer token, LLM primary provider (set in samconfig)
 
 Resources:
   SanaNetwork:
@@ -95,6 +100,7 @@ Resources:
         GeminiApiKey: !Ref GeminiApiKey
         GroqApiKey: !Ref GroqApiKey
         CerebrasApiKey: !Ref CerebrasApiKey
+        BedrockMantleApiKey: !Ref BedrockMantleApiKey
 
   SanaStorage:
     Type: AWS::Serverless::Application
@@ -116,6 +122,7 @@ Resources:
         GitHubPatSecretArn: !GetAtt SanaSecrets.Outputs.GitHubPatSecretArn
         GroqApiKeySecretArn: !GetAtt SanaSecrets.Outputs.GroqApiKeySecretArn
         CerebrasApiKeySecretArn: !GetAtt SanaSecrets.Outputs.CerebrasApiKeySecretArn
+        BedrockMantleApiKeySecretArn: !GetAtt SanaSecrets.Outputs.BedrockMantleApiKeySecretArn
         LabsBucketArn: !GetAtt SanaStorage.Outputs.BucketArn
 
   SanaDatabase:
@@ -149,6 +156,7 @@ Resources:
         GeminiApiKeySecretArn: !GetAtt SanaSecrets.Outputs.GeminiApiKeySecretArn
         GroqApiKeySecretArn: !GetAtt SanaSecrets.Outputs.GroqApiKeySecretArn
         CerebrasApiKeySecretArn: !GetAtt SanaSecrets.Outputs.CerebrasApiKeySecretArn
+        BedrockMantleApiKeySecretArn: !GetAtt SanaSecrets.Outputs.BedrockMantleApiKeySecretArn
         DbEndpointAddress: !GetAtt SanaDatabase.Outputs.DbEndpointAddress
         DbEndpointPort: !GetAtt SanaDatabase.Outputs.DbEndpointPort
         DBName: !Ref DBName

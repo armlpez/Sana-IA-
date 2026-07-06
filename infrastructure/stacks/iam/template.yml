@@ -19,6 +19,8 @@ Parameters:
     Type: String
   CerebrasApiKeySecretArn:
     Type: String
+  BedrockMantleApiKeySecretArn:
+    Type: String
   LabsBucketArn:
     Type: String
 
@@ -52,6 +54,7 @@ Resources:
                   - !Ref GitHubPatSecretArn
                   - !Ref GroqApiKeySecretArn
                   - !Ref CerebrasApiKeySecretArn
+                  - !Ref BedrockMantleApiKeySecretArn
         - PolicyName: SanaS3LabsAccess
           PolicyDocument:
             Version: "2012-10-17"
@@ -62,24 +65,14 @@ Resources:
                   - s3:GetObject
                   - s3:DeleteObject
                 Resource: !Sub "${LabsBucketArn}/*"
-        - PolicyName: SanaBedrockAccess
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action: bedrock:InvokeModel
-                Resource:
-                  # Cross-region inference profiles — what the app actually invokes
-                  # (Nova doesn't support on-demand calls to the bare model ID).
-                  - !Sub "arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:inference-profile/us.amazon.nova-micro-v1:0"
-                  - !Sub "arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:inference-profile/us.amazon.nova-lite-v1:0"
-                  # Foundation models in every US region the profile can route to.
-                  - "arn:aws:bedrock:us-east-1::foundation-model/amazon.nova-micro-v1:0"
-                  - "arn:aws:bedrock:us-east-2::foundation-model/amazon.nova-micro-v1:0"
-                  - "arn:aws:bedrock:us-west-2::foundation-model/amazon.nova-micro-v1:0"
-                  - "arn:aws:bedrock:us-east-1::foundation-model/amazon.nova-lite-v1:0"
-                  - "arn:aws:bedrock:us-east-2::foundation-model/amazon.nova-lite-v1:0"
-                  - "arn:aws:bedrock:us-west-2::foundation-model/amazon.nova-lite-v1:0"
+        # NOTE: no bedrock:InvokeModel policy here. Bedrock Mantle (the primary
+        # LLM provider) authenticates via a Bearer API key fetched from Secrets
+        # Manager above — not AWS SigV4/IAM. The classic Bedrock Runtime (Nova)
+        # policy was removed: this account's Nova access is gated by an
+        # account-level `authorizationStatus: NOT_AUTHORIZED` restriction that
+        # no IAM policy can work around (confirmed identical failure across
+        # IAM user, EC2 role, and Bedrock API key auth — see engram
+        # decision/bedrock-provider-choice for the full investigation).
 
   BackendInstanceProfile:
     Type: AWS::IAM::InstanceProfile

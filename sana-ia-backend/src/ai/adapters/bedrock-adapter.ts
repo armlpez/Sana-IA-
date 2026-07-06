@@ -1,43 +1,40 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import {
-  BedrockRuntimeClient,
-  ConverseCommand,
-  ContentBlock,
-  ImageFormat,
-} from '@aws-sdk/client-bedrock-runtime';
 import { LlmGenerationResult, LlmProviderPort, LlmTokenUsage } from '../ports/llm-provider.port';
 import { ModelTier, MODEL_TIER_FAST, MODEL_TIER_MID, MODEL_TIER_PRO } from '../config/model-tiers.config';
 import { GeminiErrorKind } from '../utils/gemini-error-kind';
 import { classifyGeminiError } from '../utils/error-classifier';
 import { AppException } from '../../common/exceptions/app-exception';
 import { ErrorCode } from '../../common/enums/error-codes.enum';
-import { isMultimodalPrompt } from '../utils/multimodal.util';
+import { isMultimodalPrompt, partsToOpenAiContent } from '../utils/multimodal.util';
 
 /**
- * Bedrock Adapter — implements LlmProviderPort for Amazon Bedrock (Nova models)
- * via the Converse API.
+ * Bedrock Adapter — implements LlmProviderPort for Amazon Bedrock Mantle, the
+ * OpenAI-compatible gateway to third-party/open-weight models on Bedrock
+ * (GPT-OSS, Qwen, DeepSeek, etc). This is a DIFFERENT product from the classic
+ * Bedrock Runtime (which only serves Amazon's own Nova/Titan models) — Mantle
+ * exists because this AWS account's Nova access is gated by an account-level
+ * `authorizationStatus: NOT_AUTHORIZED` restriction (confirmed via
+ * get-foundation-model-availability; identical failure across IAM user, EC2
+ * role, and classic Bedrock API key). Mantle uses a separate Bearer-token API
+ * key and is authorized on this account today.
  *
- * Auth: NO API key. The SDK resolves credentials through the default provider
- * chain — on EC2 that's the instance role (same mechanism S3StorageAdapter
- * already uses), locally it's the AWS CLI profile. Requires bedrock:InvokeModel
- * on the Nova inference profiles (see infrastructure/stacks/iam/template.yml).
- *
- * Model IDs are cross-region inference profiles (us.amazon.nova-*) — Nova does
- * NOT support on-demand invocation of the bare foundation-model ID.
- *
- * Nova Micro is text-only; Nova Lite is multimodal. Multimodal (OCR) prompts
- * always route to the vision model, mirroring GroqAdapter's pattern.
+ * Auth: Bearer token (BEDROCK_MANTLE_API_KEY), NOT AWS SigV4 — no IAM
+ * permission needed, unlike every other AWS-native call in this codebase (S3,
+ * Secrets Manager). Plain fetch, same shape as CerebrasAdapter.
  */
 @Injectable()
 export class BedrockAdapter implements LlmProviderPort {
   private readonly logger = new Logger(BedrockAdapter.name);
-  private readonly client: BedrockRuntimeClient;
+  private readonly apiKey: string;
+  private readonly baseUrl: string;
 
-  // Model tier mapping (Bedrock-specific — Nova inference profile IDs)
+  // Model per tier — GPT-OSS 20B for fast/mid, 120B for the completed tier.
   private readonly modelFast: string;
   private readonly modelMid: string;
   private readonly modelSlow: string;
+  // Qwen3-VL is the only vision-capable model of the three — used for OCR
+  // regardless of tier, same pattern as GroqAdapter's separate modelVision.
   private readonly modelVision: string;
 
   private readonly timeoutFastMs: number;
@@ -48,29 +45,32 @@ export class BedrockAdapter implements LlmProviderPort {
   private readonly retryCapMs: number;
 
   constructor(private readonly configService: ConfigService) {
+    this.apiKey = this.configService.get<string>('BEDROCK_MANTLE_API_KEY') ?? '';
+    if (!this.apiKey) {
+      this.logger.warn('BEDROCK_MANTLE_API_KEY not configured — BedrockAdapter will not function.');
+    }
+
     const region = this.configService.get<string>('AWS_REGION') ?? 'us-east-1';
-    this.client = new BedrockRuntimeClient({ region });
+    this.baseUrl = `https://bedrock-mantle.${region}.api.aws/v1/chat/completions`;
 
     const cfg = this.configService.get<Record<string, unknown>>('aiModels') ?? {};
-    this.modelFast = (cfg['bedrockModelCollecting'] as string | undefined) ?? 'us.amazon.nova-micro-v1:0';
-    this.modelMid = (cfg['bedrockModelAnalyzing'] as string | undefined) ?? 'us.amazon.nova-micro-v1:0';
-    this.modelSlow = (cfg['bedrockModelCompleted'] as string | undefined) ?? 'us.amazon.nova-lite-v1:0';
-    // Nova Micro is text-only — multimodal (OCR) prompts must use Nova Lite.
-    this.modelVision = (cfg['bedrockModelVision'] as string | undefined) ?? 'us.amazon.nova-lite-v1:0';
+    this.modelFast = (cfg['bedrockModelCollecting'] as string | undefined) ?? 'openai.gpt-oss-20b';
+    this.modelMid = (cfg['bedrockModelAnalyzing'] as string | undefined) ?? 'openai.gpt-oss-20b';
+    this.modelSlow = (cfg['bedrockModelCompleted'] as string | undefined) ?? 'openai.gpt-oss-120b';
+    this.modelVision = (cfg['bedrockModelVision'] as string | undefined) ?? 'qwen.qwen3-vl-235b-a22b-instruct';
 
     this.timeoutFastMs = (cfg['timeoutFastMs'] as number | undefined) ?? 8000;
     this.timeoutSlowMs = (cfg['timeoutSlowMs'] as number | undefined) ?? 25000;
 
-    // Bedrock is the PRIMARY provider — it retries deeply (like Gemini did when
-    // it was primary); the fallback chain handles what retries can't.
+    // Bedrock is the PRIMARY provider — it retries deeply; fallback providers
+    // (gemini/groq/cerebras) fail-fast because the chain itself is the
+    // macro-level retry mechanism.
     this.retryMax = (cfg['bedrockRetryMax'] as number | undefined) ?? 2;
     this.retryBaseMs = (cfg['retryBaseMs'] as number | undefined) ?? 500;
     this.retryCapMs = (cfg['retryCapMs'] as number | undefined) ?? 4000;
   }
 
   async generateWithResilience(tier: ModelTier, prompt: string | any[]): Promise<LlmGenerationResult> {
-    // Multimodal prompts need the vision-capable model regardless of tier,
-    // and always get the slow timeout budget (image processing is not fast-tier work).
     const multimodal = isMultimodalPrompt(prompt);
     const modelName = multimodal ? this.modelVision : this.resolveModelName(tier);
     const timeoutMs = multimodal ? this.timeoutSlowMs : this.resolveTimeout(tier);
@@ -120,7 +120,7 @@ export class BedrockAdapter implements LlmProviderPort {
   }
 
   supportsVision(): boolean {
-    return true; // via the configured vision model (Nova Lite by default)
+    return true; // via the configured vision model (Qwen3-VL by default)
   }
 
   // ========== Private helpers ==========
@@ -142,35 +142,48 @@ export class BedrockAdapter implements LlmProviderPort {
     prompt: string | any[],
     timeoutMs: number,
   ): Promise<{ text: string; usage: LlmTokenUsage }> {
-    const content = this.toConverseContent(prompt);
+    // Gemini Part[] prompts must be converted to OpenAI-style content
+    // ({type:'text'} / {type:'image_url'}) — Mantle speaks the OpenAI schema.
+    const messages: any[] =
+      typeof prompt === 'string'
+        ? [{ role: 'user', content: prompt }]
+        : [{ role: 'user', content: partsToOpenAiContent(prompt) }];
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
-      const response = await this.client.send(
-        new ConverseCommand({
-          modelId: modelName,
-          messages: [{ role: 'user', content }],
-          // 0.3 for consistency with the Gemini primary config this replaces —
-          // the prompts expect deterministic, JSON-shaped output.
-          inferenceConfig: { temperature: 0.3 },
-        }),
-        { abortSignal: controller.signal },
-      );
+      const res = await fetch(this.baseUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${this.apiKey}`,
+        },
+        body: JSON.stringify({ model: modelName, messages }),
+        signal: controller.signal,
+      });
 
-      const text =
-        response.output?.message?.content
-          ?.map((block) => block.text ?? '')
-          .join('') ?? '';
+      if (!res.ok) {
+        const errBody = await res.text().catch(() => '');
+        const httpError = new Error(`Bedrock Mantle HTTP ${res.status}: ${errBody.substring(0, 200)}`);
+        (httpError as any).status = res.status;
+        throw httpError;
+      }
 
-      if (!response.usage) {
-        this.logger.warn('Bedrock response missing usage — token tracking will be inaccurate for this call');
+      const data = (await res.json()) as {
+        choices?: Array<{ message?: { content?: string } }>;
+        usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
+      };
+
+      const text = data.choices?.[0]?.message?.content ?? '';
+
+      if (!data.usage) {
+        this.logger.warn('Bedrock Mantle response missing usage — token tracking will be inaccurate for this call');
       }
       const usage: LlmTokenUsage = {
-        promptTokens: response.usage?.inputTokens ?? 0,
-        completionTokens: response.usage?.outputTokens ?? 0,
-        totalTokens: response.usage?.totalTokens ?? 0,
+        promptTokens: data.usage?.prompt_tokens ?? 0,
+        completionTokens: data.usage?.completion_tokens ?? 0,
+        totalTokens: data.usage?.total_tokens ?? 0,
       };
 
       return { text, usage };
@@ -180,71 +193,14 @@ export class BedrockAdapter implements LlmProviderPort {
   }
 
   /**
-   * Converts the canonical Gemini Part[] prompt (or plain string) into
-   * Converse API content blocks:
-   *   string / { text }             → { text }
-   *   { inlineData: {data, mime} }  → { image: { format, source: { bytes } } }
-   *
-   * Converse takes raw bytes (not base64 data URLs like OpenAI-style APIs).
-   */
-  private toConverseContent(prompt: string | any[]): ContentBlock[] {
-    if (typeof prompt === 'string') {
-      return [{ text: prompt }];
-    }
-
-    return prompt
-      .map((p): ContentBlock | null => {
-        if (typeof p?.text === 'string') {
-          return { text: p.text };
-        }
-        if (p?.inlineData?.data) {
-          return {
-            image: {
-              format: this.mimeToImageFormat(p.inlineData.mimeType),
-              source: { bytes: Buffer.from(p.inlineData.data, 'base64') },
-            },
-          };
-        }
-        return null;
-      })
-      .filter((block): block is ContentBlock => block !== null);
-  }
-
-  /** Converse accepts png | jpeg | gif | webp; defaults to jpeg for unknown MIME types. */
-  private mimeToImageFormat(mimeType?: string): ImageFormat {
-    switch (mimeType) {
-      case 'image/png': return 'png';
-      case 'image/gif': return 'gif';
-      case 'image/webp': return 'webp';
-      default: return 'jpeg';
-    }
-  }
-
-  /**
-   * AWS SDK errors carry a `name` (ThrottlingException, ServiceUnavailableException…)
-   * and `$metadata.httpStatusCode` instead of a bare `status` field, and the
-   * AbortController rejects with an AbortError — all special-cased here before
-   * delegating the rest to the shared classifyGeminiError.
+   * fetch's AbortController rejects with a DOMException named 'AbortError' —
+   * that doesn't carry a __kind sentinel or HTTP status, so it's special-cased
+   * here before delegating the rest (429/503, policy block, message patterns)
+   * to the shared classifyGeminiError.
    */
   private classifyError(err: unknown): GeminiErrorKind {
     if (err instanceof Error && err.name === 'AbortError') {
       return GeminiErrorKind.TIMEOUT;
-    }
-
-    const e = err as any;
-    switch (e?.name) {
-      case 'ThrottlingException':
-        return GeminiErrorKind.RATE_LIMITED;
-      case 'ServiceUnavailableException':
-      case 'ModelNotReadyException':
-      case 'InternalServerException':
-        return GeminiErrorKind.UNAVAILABLE;
-    }
-
-    // Surface the HTTP status where classifyGeminiError duck-types it.
-    const status = e?.$metadata?.httpStatusCode;
-    if (status && e && typeof e === 'object' && e.status === undefined) {
-      e.status = status;
     }
     return classifyGeminiError(err);
   }
@@ -293,17 +249,17 @@ export class BedrockAdapter implements LlmProviderPort {
 
   /**
    * Extract structured detail from any error shape for rich logging.
-   * Handles: AWS SDK service exceptions, AbortError, plain Error instances.
+   * Handles: fetch HTTP errors, AbortError, plain Error instances.
    */
   private extractErrorDetail(err: unknown): { status: string; message: string; raw?: string } {
     if (!err) return { status: 'N/A', message: 'null/undefined error' };
 
     const e = err as any;
-    const status = e.$metadata?.httpStatusCode ?? e.status ?? e.statusCode ?? 'N/A';
+    const status = e.status ?? e.statusCode ?? e.httpStatus ?? 'N/A';
     const message = e.message ?? String(err);
     let raw: string | undefined;
     try {
-      const body = e.name ? { name: e.name, requestId: e.$metadata?.requestId } : (e.cause ?? e.body);
+      const body = e.cause ?? e.body ?? e.response?.data;
       if (body) {
         raw = typeof body === 'string' ? body.substring(0, 500) : JSON.stringify(body).substring(0, 500);
       }

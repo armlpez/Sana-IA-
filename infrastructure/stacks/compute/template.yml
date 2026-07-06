@@ -36,6 +36,8 @@ Parameters:
     Type: String
   CerebrasApiKeySecretArn:
     Type: String
+  BedrockMantleApiKeySecretArn:
+    Type: String
   DbEndpointAddress:
     Type: String
   DbEndpointPort:
@@ -136,6 +138,7 @@ Resources:
           GEMINI_API_KEY=$(get_secret "${GeminiApiKeySecretArn}")
           GROQ_API_KEY=$(get_secret "${GroqApiKeySecretArn}")
           CEREBRAS_API_KEY=$(get_secret "${CerebrasApiKeySecretArn}")
+          BEDROCK_MANTLE_API_KEY=$(get_secret "${BedrockMantleApiKeySecretArn}")
 
           AUTH_REPO_URL=$(echo "$REPO_URL" | sed "s#https://#https://x-access-token:$GITHUB_TOKEN@#")
 
@@ -165,10 +168,11 @@ Resources:
           JWT_REFRESH_SECRET=$JWT_REFRESH_SECRET
           LLM_PRIMARY_PROVIDER=bedrock
           LLM_FALLBACK_CHAIN=gemini,groq,cerebras
-          BEDROCK_MODEL_COLLECTING=us.amazon.nova-micro-v1:0
-          BEDROCK_MODEL_ANALYZING=us.amazon.nova-micro-v1:0
-          BEDROCK_MODEL_COMPLETED=us.amazon.nova-lite-v1:0
-          BEDROCK_MODEL_VISION=us.amazon.nova-lite-v1:0
+          BEDROCK_MANTLE_API_KEY=$BEDROCK_MANTLE_API_KEY
+          BEDROCK_MODEL_COLLECTING=openai.gpt-oss-20b
+          BEDROCK_MODEL_ANALYZING=openai.gpt-oss-20b
+          BEDROCK_MODEL_COMPLETED=openai.gpt-oss-120b
+          BEDROCK_MODEL_VISION=qwen.qwen3-vl-235b-a22b-instruct
           BEDROCK_RETRY_MAX=2
           GEMINI_API_KEY=$GEMINI_API_KEY
           GEMINI_MODEL_COLLECTING=gemini-2.5-flash-lite

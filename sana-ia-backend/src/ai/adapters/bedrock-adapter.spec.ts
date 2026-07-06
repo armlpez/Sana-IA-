@@ -3,37 +3,15 @@ import { BedrockAdapter } from './bedrock-adapter';
 import { AppException } from '../../common/exceptions/app-exception';
 import { MODEL_TIER_FAST, MODEL_TIER_PRO } from '../config/model-tiers.config';
 
-/**
- * Minimal mock for @aws-sdk/client-bedrock-runtime.
- * Mirrors the pattern used in groq-adapter.spec.ts.
- */
-jest.mock('@aws-sdk/client-bedrock-runtime', () => {
-    const mockSend = jest.fn();
-    function BedrockRuntimeClientMock() {
-        return { send: mockSend };
-    }
-    function ConverseCommandMock(input: unknown) {
-        return { input };
-    }
-
-    return {
-        __esModule: true,
-        BedrockRuntimeClient: BedrockRuntimeClientMock,
-        ConverseCommand: ConverseCommandMock,
-        __mockSend: mockSend,
-    };
-});
-
-const { __mockSend: mockSend } = jest.requireMock('@aws-sdk/client-bedrock-runtime');
-
 function createConfigService(overrides: Record<string, unknown> = {}): ConfigService {
     const defaults: Record<string, unknown> = {
+        BEDROCK_MANTLE_API_KEY: 'test-mantle-key',
         AWS_REGION: 'us-east-1',
         aiModels: {
-            bedrockModelCollecting: 'us.amazon.nova-micro-v1:0',
-            bedrockModelAnalyzing: 'us.amazon.nova-micro-v1:0',
-            bedrockModelCompleted: 'us.amazon.nova-lite-v1:0',
-            bedrockModelVision: 'us.amazon.nova-lite-v1:0',
+            bedrockModelCollecting: 'openai.gpt-oss-20b',
+            bedrockModelAnalyzing: 'openai.gpt-oss-20b',
+            bedrockModelCompleted: 'openai.gpt-oss-120b',
+            bedrockModelVision: 'qwen.qwen3-vl-235b-a22b-instruct',
             timeoutFastMs: 200,
             timeoutSlowMs: 500,
             bedrockRetryMax: 1,
@@ -48,28 +26,24 @@ function createConfigService(overrides: Record<string, unknown> = {}): ConfigSer
     } as unknown as ConfigService;
 }
 
-/** Builds a successful Converse API response shape. */
-function converseResponse(text: string, usage?: { inputTokens: number; outputTokens: number; totalTokens: number }) {
+function jsonResponse(body: unknown, ok = true, status = 200) {
     return {
-        output: { message: { content: [{ text }] } },
-        usage,
-    };
-}
-
-/** AWS SDK service exceptions carry a `name` and `$metadata.httpStatusCode`. */
-function awsError(name: string, httpStatusCode: number): Error {
-    const err = new Error(name);
-    err.name = name;
-    (err as any).$metadata = { httpStatusCode };
-    return err;
+        ok,
+        status,
+        json: async () => body,
+        text: async () => JSON.stringify(body),
+    } as Response;
 }
 
 describe('BedrockAdapter', () => {
     let adapter: BedrockAdapter;
+    let fetchMock: jest.Mock;
 
     beforeEach(() => {
         jest.clearAllMocks();
         jest.useRealTimers();
+        fetchMock = jest.fn();
+        global.fetch = fetchMock as unknown as typeof fetch;
         adapter = new BedrockAdapter(createConfigService());
     });
 
@@ -85,114 +59,126 @@ describe('BedrockAdapter', () => {
         expect(adapter.supportsVision()).toBe(true);
     });
 
+    it('calls the Mantle endpoint for the configured region with the Authorization header', async () => {
+        fetchMock.mockResolvedValueOnce(
+            jsonResponse({ choices: [{ message: { content: 'ok' } }] }),
+        );
+
+        await adapter.generateWithResilience(MODEL_TIER_FAST, 'test prompt');
+
+        expect(fetchMock).toHaveBeenCalledWith(
+            'https://bedrock-mantle.us-east-1.api.aws/v1/chat/completions',
+            expect.objectContaining({
+                method: 'POST',
+                headers: expect.objectContaining({
+                    Authorization: 'Bearer test-mantle-key',
+                }),
+            }),
+        );
+    });
+
+    it('converts Gemini Part[] prompts to OpenAI vision format and uses the vision model', async () => {
+        fetchMock.mockResolvedValueOnce(
+            jsonResponse({ choices: [{ message: { content: '{"biomarkers":[]}' } }] }),
+        );
+
+        const parts = [
+            { text: 'extrae biomarcadores' },
+            { inlineData: { data: 'abc123', mimeType: 'image/png' } },
+        ];
+        const result = await adapter.generateWithResilience(MODEL_TIER_PRO, parts);
+
+        expect(result.text).toBe('{"biomarkers":[]}');
+        const [, requestInit] = fetchMock.mock.calls[0];
+        const body = JSON.parse(requestInit.body as string);
+        expect(body.model).toBe('qwen.qwen3-vl-235b-a22b-instruct');
+        expect(body.messages).toEqual([
+            {
+                role: 'user',
+                content: [
+                    { type: 'text', text: 'extrae biomarcadores' },
+                    { type: 'image_url', image_url: { url: 'data:image/png;base64,abc123' } },
+                ],
+            },
+        ]);
+    });
+
     describe('generateWithResilience', () => {
         it('returns text, usage and model on a successful call', async () => {
-            mockSend.mockResolvedValueOnce(
-                converseResponse('respuesta de nova', { inputTokens: 120, outputTokens: 45, totalTokens: 165 }),
+            fetchMock.mockResolvedValueOnce(
+                jsonResponse({
+                    choices: [{ message: { content: 'hola, como puedo ayudarte' } }],
+                    usage: { prompt_tokens: 74, completion_tokens: 12, total_tokens: 86 },
+                }),
             );
 
             const result = await adapter.generateWithResilience(MODEL_TIER_FAST, 'test prompt');
 
-            expect(result.text).toBe('respuesta de nova');
-            expect(result.model).toBe('us.amazon.nova-micro-v1:0');
-            expect(result.usage).toEqual({ promptTokens: 120, completionTokens: 45, totalTokens: 165 });
+            expect(result.text).toBe('hola, como puedo ayudarte');
+            expect(result.model).toBe('openai.gpt-oss-20b');
+            expect(result.usage).toEqual({ promptTokens: 74, completionTokens: 12, totalTokens: 86 });
         });
 
-        it('sends string prompts as a single text content block', async () => {
-            mockSend.mockResolvedValueOnce(converseResponse('ok'));
-
-            await adapter.generateWithResilience(MODEL_TIER_FAST, 'hola nova');
-
-            const [command] = mockSend.mock.calls[0];
-            expect(command.input).toEqual(
-                expect.objectContaining({
-                    modelId: 'us.amazon.nova-micro-v1:0',
-                    messages: [{ role: 'user', content: [{ text: 'hola nova' }] }],
-                }),
-            );
-        });
-
-        it('converts Gemini Part[] prompts to Converse image blocks and uses the vision model', async () => {
-            mockSend.mockResolvedValueOnce(converseResponse('{"biomarkers":[]}'));
-
-            const parts = [
-                { text: 'extrae biomarcadores' },
-                { inlineData: { data: Buffer.from('img-bytes').toString('base64'), mimeType: 'image/png' } },
-            ];
-            const result = await adapter.generateWithResilience(MODEL_TIER_PRO, parts);
-
-            expect(result.text).toBe('{"biomarkers":[]}');
-            const [command] = mockSend.mock.calls[0];
-            expect(command.input.modelId).toBe('us.amazon.nova-lite-v1:0');
-            expect(command.input.messages[0].content).toEqual([
-                { text: 'extrae biomarcadores' },
-                {
-                    image: {
-                        format: 'png',
-                        source: { bytes: Buffer.from('img-bytes') },
-                    },
-                },
-            ]);
-        });
-
-        it('retries once on ThrottlingException and succeeds on the second attempt', async () => {
-            mockSend
-                .mockRejectedValueOnce(awsError('ThrottlingException', 429))
-                .mockResolvedValueOnce(converseResponse('recovered'));
+        it('retries once on HTTP 429 and succeeds on the second attempt', async () => {
+            fetchMock
+                .mockResolvedValueOnce(jsonResponse({ error: 'rate limited' }, false, 429))
+                .mockResolvedValueOnce(jsonResponse({ choices: [{ message: { content: 'recovered' } }] }));
 
             const result = await adapter.generateWithResilience(MODEL_TIER_FAST, 'test');
             expect(result.text).toBe('recovered');
-            expect(mockSend).toHaveBeenCalledTimes(2);
+            expect(fetchMock).toHaveBeenCalledTimes(2);
         });
 
-        it('retries on ServiceUnavailableException', async () => {
-            mockSend
-                .mockRejectedValueOnce(awsError('ServiceUnavailableException', 503))
-                .mockResolvedValueOnce(converseResponse('back online'));
+        it('retries on HTTP 503 unavailable', async () => {
+            fetchMock
+                .mockResolvedValueOnce(jsonResponse({ error: 'unavailable' }, false, 503))
+                .mockResolvedValueOnce(jsonResponse({ choices: [{ message: { content: 'back online' } }] }));
 
             const result = await adapter.generateWithResilience(MODEL_TIER_FAST, 'test');
             expect(result.text).toBe('back online');
         });
 
-        it('exhausts retries and throws AppException on persistent throttling', async () => {
-            mockSend
-                .mockRejectedValueOnce(awsError('ThrottlingException', 429))
-                .mockRejectedValueOnce(awsError('ThrottlingException', 429));
+        it('exhausts retries and throws AppException on persistent 429', async () => {
+            fetchMock
+                .mockResolvedValueOnce(jsonResponse({ error: 'rate limited' }, false, 429))
+                .mockResolvedValueOnce(jsonResponse({ error: 'rate limited' }, false, 429));
 
             await expect(adapter.generateWithResilience(MODEL_TIER_FAST, 'test')).rejects.toThrow(
                 AppException,
             );
-            // bedrockRetryMax=1 → 1 initial + 1 retry = 2 attempts total
-            expect(mockSend).toHaveBeenCalledTimes(2);
+            expect(fetchMock).toHaveBeenCalledTimes(2);
         });
 
-        it('does not retry a non-transient error (ValidationException)', async () => {
-            mockSend.mockRejectedValueOnce(awsError('ValidationException', 400));
+        it('does not retry a non-transient HTTP error (400)', async () => {
+            fetchMock.mockResolvedValueOnce(jsonResponse({ error: 'bad request' }, false, 400));
 
             await expect(adapter.generateWithResilience(MODEL_TIER_FAST, 'test')).rejects.toThrow(
                 AppException,
             );
-            expect(mockSend).toHaveBeenCalledTimes(1);
+            expect(fetchMock).toHaveBeenCalledTimes(1);
         });
 
         it('uses the completed-tier model for MODEL_TIER_PRO text prompts', async () => {
-            mockSend.mockResolvedValueOnce(converseResponse('pro result'));
+            fetchMock.mockResolvedValueOnce(
+                jsonResponse({ choices: [{ message: { content: 'pro result' } }] }),
+            );
 
-            const result = await adapter.generateWithResilience(MODEL_TIER_PRO, 'test');
-            expect(result.text).toBe('pro result');
-            const [command] = mockSend.mock.calls[0];
-            expect(command.input.modelId).toBe('us.amazon.nova-lite-v1:0');
+            await adapter.generateWithResilience(MODEL_TIER_PRO, 'test');
+
+            const [, requestInit] = fetchMock.mock.calls[0];
+            const body = JSON.parse(requestInit.body as string);
+            expect(body.model).toBe('openai.gpt-oss-120b');
         });
 
         it('defaults usage to zeros (with a warning) when the response has no usage block', async () => {
-            mockSend.mockResolvedValueOnce(converseResponse('sin usage'));
+            fetchMock.mockResolvedValueOnce(jsonResponse({ choices: [{ message: { content: 'sin usage' } }] }));
 
             const result = await adapter.generateWithResilience(MODEL_TIER_FAST, 'test');
             expect(result.usage).toEqual({ promptTokens: 0, completionTokens: 0, totalTokens: 0 });
         });
 
-        it('returns empty text when the response has no content', async () => {
-            mockSend.mockResolvedValueOnce({ output: { message: { content: [] } } });
+        it('returns empty string when the response has no choices', async () => {
+            fetchMock.mockResolvedValueOnce(jsonResponse({ choices: [] }));
 
             const result = await adapter.generateWithResilience(MODEL_TIER_FAST, 'test');
             expect(result.text).toBe('');

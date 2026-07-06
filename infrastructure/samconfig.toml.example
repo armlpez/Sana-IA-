@@ -32,4 +32,4 @@ image_repositories = []
 # parameter_overrides gets written here by `sam deploy --guided` — never commit
 # this section once it contains your real VpcId/subnets/BackendCidr.
 # Example (after sam deploy --guided):
-# parameter_overrides = "Env=dev VpcId=vpc-xxx ComputeSubnetId=subnet-xxx DbSubnetIds=subnet-yyy,subnet-zzz BackendCidr=0.0.0.0/0 ..."
+# parameter_overrides = "Env=dev VpcId=vpc-xxx ComputeSubnetId=subnet-xxx DbSubnetIds=subnet-yyy,subnet-zzz BackendCidr=0.0.0.0/0 GeminiApiKey=... GroqApiKey=... CerebrasApiKey=... BedrockMantleApiKey=..."
