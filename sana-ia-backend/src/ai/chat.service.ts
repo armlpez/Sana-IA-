@@ -69,9 +69,9 @@ export class ChatService {
         const prompt = this.buildPromptWithContext(dto.message, consultation);
 
         // 4. Call LLM via multi-provider resilience layer (Gemini → Groq → fallback)
-        let rawText: string;
+        let llmResult: Awaited<ReturnType<ResilientLlmService['generateWithFallback']>>;
         try {
-            rawText = await this.resilientLlm.generateWithFallback(tier, prompt);
+            llmResult = await this.resilientLlm.generateWithFallback(tier, prompt);
         } catch (err: unknown) {
             const kind = err instanceof AppException
                 ? this.kindFromAppException(err)
@@ -101,6 +101,7 @@ export class ChatService {
         }
 
         const responseTimeMs = Date.now() - startTime;
+        const rawText = llmResult.text;
 
         // 5. Parse the AI response
         let parsed: ReturnType<typeof this.parseResponse>;
@@ -133,6 +134,12 @@ export class ChatService {
             content: parsed.message,
             metadata: {
                 responseTimeMs,
+                model: llmResult.model,
+                provider: llmResult.provider,
+                tier,
+                tokensUsed: llmResult.usage.totalTokens,
+                promptTokens: llmResult.usage.promptTokens,
+                completionTokens: llmResult.usage.completionTokens,
             },
         });
 

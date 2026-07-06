@@ -78,7 +78,7 @@ describe('GroqAdapter', () => {
         ];
         const result = await adapter.generateWithResilience(MODEL_TIER_PRO, parts);
 
-        expect(result).toBe('{"biomarkers":[]}');
+        expect(result.text).toBe('{"biomarkers":[]}');
         expect(mockCreate).toHaveBeenCalledWith(
             expect.objectContaining({
                 model: 'qwen/qwen3.6-27b',
@@ -105,7 +105,7 @@ describe('GroqAdapter', () => {
             });
 
             const result = await adapter.generateWithResilience(MODEL_TIER_FAST, 'test prompt');
-            expect(result).toBe('hola, como puedo ayudarte');
+            expect(result.text).toBe('hola, como puedo ayudarte');
         });
 
         it('retries once on a rate-limited error and succeeds on the second attempt', async () => {
@@ -116,7 +116,7 @@ describe('GroqAdapter', () => {
                 });
 
             const result = await adapter.generateWithResilience(MODEL_TIER_FAST, 'test');
-            expect(result).toBe('recovered after retry');
+            expect(result.text).toBe('recovered after retry');
             expect(mockCreate).toHaveBeenCalledTimes(2);
         });
 
@@ -128,7 +128,7 @@ describe('GroqAdapter', () => {
                 });
 
             const result = await adapter.generateWithResilience(MODEL_TIER_FAST, 'test');
-            expect(result).toBe('back online');
+            expect(result.text).toBe('back online');
         });
 
         it('does not retry on a parse-style error and throws AppException', async () => {
@@ -158,7 +158,7 @@ describe('GroqAdapter', () => {
             });
 
             const result = await adapter.generateWithResilience(MODEL_TIER_PRO, 'test');
-            expect(result).toBe('pro response');
+            expect(result.text).toBe('pro response');
             expect(mockCreate).toHaveBeenCalledWith(
                 expect.objectContaining({ model: 'llama-3.3-70b-versatile' }),
             );
@@ -168,7 +168,7 @@ describe('GroqAdapter', () => {
             mockCreate.mockResolvedValueOnce({ choices: [] });
 
             const result = await adapter.generateWithResilience(MODEL_TIER_FAST, 'test');
-            expect(result).toBe('');
+            expect(result.text).toBe('');
         });
     });
 });

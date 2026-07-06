@@ -8,16 +8,39 @@ import { ModelTier } from '../config/model-tiers.config';
  */
 export const LLM_PROVIDER_PORT = Symbol('LlmProviderPort');
 
+/**
+ * Token usage for a single LLM call, as reported by the provider SDK itself
+ * (Gemini's usageMetadata, the OpenAI-compatible `usage` block for Groq/Cerebras).
+ * This is NOT a separate billing API call — it's free data the SDKs already return.
+ */
+export interface LlmTokenUsage {
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+}
+
+/**
+ * Result of a successful generation: the raw text plus everything needed for
+ * cost tracking (usage + the actual resolved model name, since tiers map to
+ * different models per provider).
+ */
+export interface LlmGenerationResult {
+  text: string;
+  usage: LlmTokenUsage;
+  /** The actual resolved model name used for this call (not the tier alias). */
+  model: string;
+}
+
 export interface LlmProviderPort {
   /**
    * Generate text from a prompt using the given tier's model.
    *
    * @param tier COLLECTING (fast/lite), ANALYZING (mid), or COMPLETED (slow/pro)
    * @param prompt Text or multimodal (text + image) content
-   * @returns Raw text from the model
+   * @returns The raw text plus token usage and resolved model name
    * @throws AppException on failure (classified error kind for fallback routing)
    */
-  generateWithResilience(tier: ModelTier, prompt: string | any[]): Promise<string>;
+  generateWithResilience(tier: ModelTier, prompt: string | any[]): Promise<LlmGenerationResult>;
 
   /**
    * Returns the provider name for logging/observability.

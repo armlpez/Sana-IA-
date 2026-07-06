@@ -163,8 +163,13 @@ Resources:
           NODE_ENV=production
           JWT_SECRET=$JWT_SECRET
           JWT_REFRESH_SECRET=$JWT_REFRESH_SECRET
-          LLM_PRIMARY_PROVIDER=gemini
-          LLM_FALLBACK_CHAIN=groq,cerebras
+          LLM_PRIMARY_PROVIDER=bedrock
+          LLM_FALLBACK_CHAIN=gemini,groq,cerebras
+          BEDROCK_MODEL_COLLECTING=us.amazon.nova-micro-v1:0
+          BEDROCK_MODEL_ANALYZING=us.amazon.nova-micro-v1:0
+          BEDROCK_MODEL_COMPLETED=us.amazon.nova-lite-v1:0
+          BEDROCK_MODEL_VISION=us.amazon.nova-lite-v1:0
+          BEDROCK_RETRY_MAX=2
           GEMINI_API_KEY=$GEMINI_API_KEY
           GEMINI_MODEL_COLLECTING=gemini-2.5-flash-lite
           GEMINI_MODEL_ANALYZING=gemini-2.5-flash
@@ -180,7 +185,9 @@ Resources:
           CEREBRAS_MODEL_COMPLETED=gpt-oss-120b
           GEMINI_TIMEOUT_FAST_MS=8000
           GEMINI_TIMEOUT_SLOW_MS=30000
-          GEMINI_RETRY_MAX=2
+          # Gemini is now a fallback (Bedrock is primary) — fallbacks fail fast,
+          # the chain itself is the macro-level retry.
+          GEMINI_RETRY_MAX=0
           GROQ_RETRY_MAX=0
           CEREBRAS_RETRY_MAX=0
           GEMINI_RETRY_BASE_MS=500

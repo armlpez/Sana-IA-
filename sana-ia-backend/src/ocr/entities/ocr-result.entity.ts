@@ -73,15 +73,40 @@ export class OcrResult {
 
     /**
      * Error message if processing failed (sanitized, no PHI).
+     * This is the public message shown to clients.
      */
     @Column({ type: 'text', nullable: true })
     errorMessage: string;
+
+    /**
+     * Internal error message for debugging (not shown to clients, stored for ops/devs).
+     * Contains the detailed error from the LLM provider (e.g., "Invalid API Key", "Rate limit exceeded").
+     * Sanitized to exclude PHI, but more specific than the public errorMessage.
+     */
+    @Column({ type: 'text', nullable: true })
+    internalErrorMessage: string;
 
     /**
      * Processing time in milliseconds (for observability).
      */
     @Column({ type: 'integer', nullable: true })
     processingTimeMs: number;
+
+    /**
+     * LLM call metadata for observability — same shape/purpose as ChatMessage.metadata,
+     * kept uniform across both OCR and chat call sites.
+     * No cost/USD is calculated or stored here — pricing changes too often to
+     * bake into a persisted value; these raw token counts are for trend analysis.
+     */
+    @Column({ type: 'jsonb', nullable: true })
+    metadata: {
+        provider?: string;
+        model?: string;
+        tier?: string;
+        tokensUsed?: number;
+        promptTokens?: number;
+        completionTokens?: number;
+    };
 
     @CreateDateColumn()
     createdAt: Date;

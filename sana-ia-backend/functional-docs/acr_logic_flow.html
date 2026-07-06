@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lógica ACR - SANA</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background: #f0f2f5;
+            margin: 0;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            width: 95%;
+            max-width: 1200px;
+        }
+
+        h1 {
+            color: #333;
+            text-align: center;
+        }
+
+        .mermaid {
+            display: flex;
+            justify-content: center;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>Lógica de Diagnóstico y ACR (Análisis Causa Raíz)</h1>
+        <div class="mermaid">
+            flowchart TD
+            Start([Inicio: Síntoma Usuario]) --> Disclaimer{¿Acepta Disclaimer?}
+
+            Disclaimer -- No --> EndTerm([Fin del Proceso])
+            Disclaimer -- Si --> NLP[IA Traducción / NLP]
+
+            subgraph "Fase de Seguridad"
+            NLP --> Extract[Extraer Variables Críticas (Dolor, Tensión, etc)]
+            Extract --> Vital{¿Emergencia Vital?}
+            Vital -- SI --> ER[ALERTA: Urgencias Médicas Inmediatas]
+            end
+
+            subgraph "Motor ACR - Ingeniería R.F.G."
+            Vital -- NO --> RFG[Captura Gestión R.F.G.]
+            RFG --> Context[Validar: Entorno, Hábitos, Nutrición, Estrés]
+            Context --> FiveWhys[Algoritmo 5 Porqués]
+
+            FiveWhys --> Correlation{¿Correlación Físico-Gestión?}
+
+            Correlation -- No --> Inconsistency[Detectar Inconsistencia / Falta Info]
+            Inconsistency --> RequestLabs[Solicitar Data Hard / Laboratorios]
+
+            Correlation -- Si --> RootCause
+            end
+
+            subgraph "Validación Data Hard"
+            RequestLabs --> OCR[Procesamiento OCR Imagen]
+            OCR --> Biomarkers[Extracción Biomarcadores]
+            Biomarkers --> CrossRef[Cruce: Síntoma + Biomarcador]
+            CrossRef --> RootCause[Identificar Causa Raíz Probable]
+            CrossRef --> Solapamiento[Analizar Solapamiento (Mecánico vs Químico)]
+            end
+
+            subgraph "Output"
+            RootCause --> Report[Generar Informe Técnico]
+            Solapamiento --> Report
+            Report --> Specialist[Sugerir Especialista (ej: Endocrino)]
+            Specialist --> FinalOutput([Entregable al Usuario])
+            end
+
+            ER --> End([Fin por Emergencia])
+            FinalOutput --> EndNormal([Fin Proceso])
+        </div>
+    </div>
+    <script type="module">
+        import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+        mermaid.initialize({ startOnLoad: true, theme: 'base', flowchart: { curve: 'basis' } });
+    </script>
+</body>
+
+</html>

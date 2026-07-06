@@ -11,6 +11,7 @@ import { classifyGeminiError } from '../utils/error-classifier';
 import { ModelTier, MODEL_TIER_FAST, MODEL_TIER_MID } from '../config/model-tiers.config';
 import { AppException } from '../../common/exceptions/app-exception';
 import { ErrorCode } from '../../common/enums/error-codes.enum';
+import { LlmGenerationResult, LlmTokenUsage } from '../ports/llm-provider.port';
 
 /**
  * The set of GeminiErrorKinds that are transient and eligible for retry.
@@ -81,10 +82,10 @@ export class GeminiClientService {
      *   - retry with exponential backoff + jitter for transient errors only
      *   - error classification
      *
-     * Returns the raw text string from the model response on success.
+     * Returns the raw text plus token usage/model name from the model response on success.
      * Throws AppException on terminal (non-retryable or exhausted) failure.
      */
-    async generateWithResilience(tier: ModelTier, prompt: string | Part[]): Promise<string> {
+    async generateWithResilience(tier: ModelTier, prompt: string | Part[]): Promise<LlmGenerationResult> {
         const modelName = this.resolveModelName(tier);
         const timeoutMs = this.resolveTimeout(tier);
         const model = this.getOrCreateModel(modelName);
@@ -104,8 +105,8 @@ export class GeminiClientService {
             }
 
             try {
-                const raw = await this.callWithTimeout(model, prompt, timeoutMs);
-                return raw;
+                const { text, usage } = await this.callWithTimeout(model, prompt, timeoutMs);
+                return { text, usage, model: modelName };
             } catch (err: unknown) {
                 const kind = classifyGeminiError(err);
                 lastKind = kind;
@@ -175,7 +176,7 @@ export class GeminiClientService {
         model: GenerativeModel,
         prompt: string | Part[],
         timeoutMs: number,
-    ): Promise<string> {
+    ): Promise<{ text: string; usage: LlmTokenUsage }> {
         const timeoutError: Record<string, unknown> = {
             __kind: GeminiErrorKind.TIMEOUT,
             message: `Gemini call timed out after ${timeoutMs}ms`,
@@ -188,7 +189,19 @@ export class GeminiClientService {
         );
 
         const result = await Promise.race([sdkCall, timeoutGuard]);
-        return result.response.text();
+        const text = result.response.text();
+
+        const usageMetadata = result.response.usageMetadata;
+        if (!usageMetadata) {
+            this.logger.warn('Gemini response missing usageMetadata — cost tracking will be inaccurate for this call');
+        }
+        const usage: LlmTokenUsage = {
+            promptTokens: usageMetadata?.promptTokenCount ?? 0,
+            completionTokens: usageMetadata?.candidatesTokenCount ?? 0,
+            totalTokens: usageMetadata?.totalTokenCount ?? 0,
+        };
+
+        return { text, usage };
     }
 
     /**

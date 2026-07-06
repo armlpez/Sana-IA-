@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { GeminiClientService } from '../services/gemini-client.service';
-import { LlmProviderPort } from '../ports/llm-provider.port';
+import { LlmGenerationResult, LlmProviderPort } from '../ports/llm-provider.port';
 import { ModelTier } from '../config/model-tiers.config';
 
 /**
@@ -11,7 +11,7 @@ import { ModelTier } from '../config/model-tiers.config';
 export class GeminiAdapter implements LlmProviderPort {
   constructor(private readonly geminiClient: GeminiClientService) {}
 
-  async generateWithResilience(tier: ModelTier, prompt: string | any[]): Promise<string> {
+  async generateWithResilience(tier: ModelTier, prompt: string | any[]): Promise<LlmGenerationResult> {
     return this.geminiClient.generateWithResilience(tier, prompt);
   }
 

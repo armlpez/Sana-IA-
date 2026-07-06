@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Flujo de Interacción de Usuario - SANA</title>
+    <style>
+        body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; background: #f0f2f5; margin: 0; padding: 20px; }
+        .container { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); width: 95%; max-width: 1200px; }
+        h1 { color: #333; text-align: center; }
+        .mermaid { display: flex; justify-content: center; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Flujo de Interacción del Usuario SANA</h1>
+        <div class="mermaid">
+sequenceDiagram
+    participant User as Usuario / Paciente
+    participant Frontend as App "Mi Brújula"
+    participant Backend as NestJS Backend
+    participant AI_Sana as Sana AI (Gemini)
+    
+    Note over User, AI_Sana: Fase 0: Capa Legal Inicial
+    User->>Frontend: Abre App
+    Frontend->>User: Muestra Disclaimer y Términos
+    User->>Frontend: Acepta Términos
+    Frontend->>Backend: Registra Aceptación (Timestamp)
+    
+    Note over User, AI_Sana: Fase 1: Anamnesis de Ingeniería (Captura)
+    Frontend->>User: "Hola, soy Sana. Cuéntame tu situación..."
+    User->>Frontend: Input Síntomas (Voz/Texto)
+    Frontend->>Backend: POST /consultations (Raw Input)
+    Backend->>AI_Sana: Analiza Síntomas (NLP)
+    AI_Sana-->>Backend: Variables Críticas + Inconsistencia Terapéutica
+    
+    alt Riesgo Vital Detectado
+        Backend->>Frontend: ALERTA ROJA -> Redirección Urgencias
+    else Continuar Proceso
+        Backend->>Frontend: Respuesta Empática + Solicitud Labs
+    end
+    
+    Note over User, AI_Sana: Fase 2: Validación Científica (Data Hard)
+    User->>Frontend: Sube Foto Química Sanguínea
+    Frontend->>Backend: Upload Imagen (POST /labs)
+    Backend->>AI_Sana: OCR + Extracción Biomarcadores
+    AI_Sana-->>Backend: Biomarcadores Estructurados (ej: Potasio: 3.1)
+    
+    Backend->>AI_Sana: Correlación (Síntomas + Labs + Historial)
+    AI_Sana-->>Backend: Hipótesis Preliminar (ej: Hiperaldosteronismo)
+    
+    Note over User, AI_Sana: Fase 3: Verificación (Interrogatorio Dirigido)
+    Backend->>Frontend: Pregunta Validación (ej: "¿Orinas mucho de noche?")
+    User->>Frontend: Respuesta ("Sí")
+    Frontend->>Backend: Envía Respuesta
+    Backend->>AI_Sana: Valida Hipótesis con nueva evidencia
+    
+    Note over User, AI_Sana: Fase 4: Output Ingeniería Médica
+    AI_Sana-->>Backend: Diagnóstico Final, Causa Raíz, Especialista
+    Backend->>Frontend: Genera JSON Respuesta
+    Frontend->>User: Muestra Resumen + Opción Descargar PDF
+    User->>Frontend: Descargar Informe
+    Frontend->>Backend: GET /diagnosis/:id/pdf
+    Backend-->>User: Archivo PDF (Informe Técnico para Médico)
+        </div>
+    </div>
+    <script type="module">
+        import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+        mermaid.initialize({ startOnLoad: true, theme: 'base', themeVariables: { primaryColor: '#e0f2f1', edgeLabelBackground: '#ffffff', tertiaryColor: '#fffde7' } });
+    </script>
+</body>
+</html>

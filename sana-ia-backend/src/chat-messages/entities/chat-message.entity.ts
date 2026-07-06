@@ -35,7 +35,13 @@ export class ChatMessage {
     @Column({ type: 'jsonb', nullable: true })
     metadata: {
         model?: string;
+        // Which provider in the fallback chain actually served this call (e.g. 'gemini', 'groq').
+        provider?: string;
+        tier?: string;
+        // Total tokens (prompt + completion), as reported by the provider SDK.
         tokensUsed?: number;
+        promptTokens?: number;
+        completionTokens?: number;
         responseTimeMs?: number;
         // Operational diagnostics for the fallback path. Persisted so the reason a
         // consultation shows "servicio no disponible" is queryable from the DB,

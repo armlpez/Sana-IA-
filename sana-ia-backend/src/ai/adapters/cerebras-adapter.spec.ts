@@ -60,7 +60,7 @@ describe('CerebrasAdapter', () => {
             );
 
             const result = await adapter.generateWithResilience(MODEL_TIER_FAST, 'test prompt');
-            expect(result).toBe('respuesta de cerebras');
+            expect(result.text).toBe('respuesta de cerebras');
         });
 
         it('calls the chat/completions endpoint with the Authorization header', async () => {
@@ -89,7 +89,7 @@ describe('CerebrasAdapter', () => {
                 );
 
             const result = await adapter.generateWithResilience(MODEL_TIER_FAST, 'test');
-            expect(result).toBe('recovered');
+            expect(result.text).toBe('recovered');
             expect(fetchMock).toHaveBeenCalledTimes(2);
         });
 
@@ -101,7 +101,7 @@ describe('CerebrasAdapter', () => {
                 );
 
             const result = await adapter.generateWithResilience(MODEL_TIER_FAST, 'test');
-            expect(result).toBe('back online');
+            expect(result.text).toBe('back online');
         });
 
         it('exhausts retries and throws AppException on persistent 429', async () => {
@@ -157,7 +157,7 @@ describe('CerebrasAdapter', () => {
             fetchMock.mockResolvedValueOnce(jsonResponse({ choices: [] }));
 
             const result = await adapter.generateWithResilience(MODEL_TIER_FAST, 'test');
-            expect(result).toBe('');
+            expect(result.text).toBe('');
         });
     });
 });

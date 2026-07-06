@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Arquitectura de Sistema - SANA</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background: #f0f2f5;
+            margin: 0;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            width: 95%;
+            max-width: 1200px;
+        }
+
+        h1 {
+            color: #333;
+            text-align: center;
+        }
+
+        .mermaid {
+            display: flex;
+            justify-content: center;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>Arquitectura del Sistema SANA</h1>
+        <div class="mermaid">
+            flowchart TB
+            subgraph Frontend["Frontend (React/Next.js)"]
+            UI[Interfaz Usuario]
+            Voice[Entrada Voz/Texto]
+            Upload[Carga de Laboratorios]
+            end
+
+            subgraph Backend["Backend NestJS"]
+            API[API Gateway]
+            Auth[Auth Module]
+
+            subgraph Core["Core Modules"]
+            Users[Users Module]
+            Symptoms[Symptoms Module]
+            Diseases[Diseases Module]
+            Diagnosis[Diagnosis Module]
+            end
+
+            subgraph AI["AI Engine"]
+            NLP[NLP Service - Extracción Variables]
+            OCR[OCR Service - Lectura Labs]
+            ACR[ACR Engine - Motor 5 Porqués]
+            RAG[RAG Service - Base Conocimiento Médico]
+            end
+
+            subgraph Reports["Reports"]
+            PDF[PDF Generator]
+            History[Historial Consultas]
+            end
+            end
+
+            subgraph External["Servicios Externos"]
+            Gemini[Gemini 1.5 Pro API]
+            Storage[Cloud Storage - Labs]
+            end
+
+            subgraph Database["Base de Datos"]
+            DB[(PostgreSQL)]
+            end
+
+            UI --> API
+            Voice --> API
+            Upload --> API
+            API --> Auth
+            Auth --> Core
+            Core --> AI
+            AI --> Gemini
+            AI --> RAG
+            Core --> Reports
+            Core --> DB
+            Upload --> Storage
+        </div>
+    </div>
+    <script type="module">
+        import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+        mermaid.initialize({ startOnLoad: true, theme: 'neutral' });
+    </script>
+</body>
+
+</html>

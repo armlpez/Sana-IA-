@@ -4,6 +4,13 @@ import { Consultation } from '../consultations/entities/consultation.entity';
 import { ChatMessage } from '../chat-messages/entities/chat-message.entity';
 import { Diagnosis } from '../consultations/entities/diagnosis.entity';
 
+const ZERO_USAGE = { promptTokens: 0, completionTokens: 0, totalTokens: 0 };
+
+/** Builds the LlmGenerationResult (+provider) shape returned by ResilientLlmService.generateWithFallback. */
+function llmResult(text: string) {
+    return { text, usage: ZERO_USAGE, model: 'test-model', provider: 'gemini' };
+}
+
 describe('ChatService — Emergency Latch', () => {
     let chatService: ChatService;
     let consultationRepo: Repository<Consultation>;
@@ -57,13 +64,13 @@ describe('ChatService — Emergency Latch', () => {
 
         // Simula respuesta estructurada JSON de Gemini que indica emergencia
         resilientLlmService.generateWithFallback.mockResolvedValue(
-            JSON.stringify({
+            llmResult(JSON.stringify({
                 message: 'Vaya a urgencias',
                 diagnosis: {
                     isEmergency: true,
                     rootCauseHypothesis: 'Posible evento cardíaco',
                 }
-            })
+            })),
         );
 
         await chatService.sendMessage(100, { consultationId: 1, message: 'me duele el pecho' });
@@ -89,7 +96,7 @@ describe('ChatService — Emergency Latch', () => {
         (chatMessageRepo.save as jest.Mock).mockResolvedValue({});
 
         resilientLlmService.generateWithFallback.mockResolvedValue(
-            JSON.stringify({
+            llmResult(JSON.stringify({
                 message: 'Te derivo a endocrinología',
                 status: 'completed',
                 diagnosis: {
@@ -98,7 +105,7 @@ describe('ChatService — Emergency Latch', () => {
                     suggestedSpecialist: 'Endocrinología',
                     confidenceLevel: 88,
                 },
-            }),
+            })),
         );
 
         await chatService.sendMessage(100, { conversationId: 7, message: 'orino mucho de noche' });
@@ -131,11 +138,11 @@ describe('ChatService — Emergency Latch', () => {
         (chatMessageRepo.save as jest.Mock).mockResolvedValue({});
 
         resilientLlmService.generateWithFallback.mockResolvedValue(
-            JSON.stringify({
+            llmResult(JSON.stringify({
                 message: '¿Hace cuánto tenés los síntomas?',
                 status: 'collecting',
                 diagnosis: null,
-            }),
+            })),
         );
 
         await chatService.sendMessage(100, { conversationId: 8, message: 'me duele la cabeza' });
@@ -197,13 +204,13 @@ describe('ChatService — Emergency Latch', () => {
 
         // Simula respuesta de Gemini que dice que NO es emergencia
         resilientLlmService.generateWithFallback.mockResolvedValue(
-            JSON.stringify({
+            llmResult(JSON.stringify({
                 message: 'Tómate un antiácido',
                 diagnosis: {
                     isEmergency: false,
                     rootCauseHypothesis: 'Parece acidez',
                 }
-            })
+            })),
         );
 
         await chatService.sendMessage(100, { consultationId: 1, message: 'me duele un poco' });

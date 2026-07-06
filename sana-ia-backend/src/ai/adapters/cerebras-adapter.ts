@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { LlmProviderPort } from '../ports/llm-provider.port';
+import { LlmGenerationResult, LlmProviderPort, LlmTokenUsage } from '../ports/llm-provider.port';
 import { ModelTier, MODEL_TIER_FAST, MODEL_TIER_MID, MODEL_TIER_PRO } from '../config/model-tiers.config';
 import { GeminiErrorKind } from '../utils/gemini-error-kind';
 import { classifyGeminiError } from '../utils/error-classifier';
@@ -59,7 +59,7 @@ export class CerebrasAdapter implements LlmProviderPort {
     this.retryCapMs = (cfg['retryCapMs'] as number | undefined) ?? 4000;
   }
 
-  async generateWithResilience(tier: ModelTier, prompt: string | any[]): Promise<string> {
+  async generateWithResilience(tier: ModelTier, prompt: string | any[]): Promise<LlmGenerationResult> {
     const modelName = this.resolveModelName(tier);
     const timeoutMs = this.resolveTimeout(tier);
 
@@ -76,7 +76,8 @@ export class CerebrasAdapter implements LlmProviderPort {
       }
 
       try {
-        return await this.callWithTimeout(modelName, prompt, timeoutMs);
+        const { text, usage } = await this.callWithTimeout(modelName, prompt, timeoutMs);
+        return { text, usage, model: modelName };
       } catch (err: unknown) {
         const kind = this.classifyError(err);
         lastKind = kind;
@@ -124,7 +125,11 @@ export class CerebrasAdapter implements LlmProviderPort {
     return this.timeoutFastMs;
   }
 
-  private async callWithTimeout(modelName: string, prompt: string | any[], timeoutMs: number): Promise<string> {
+  private async callWithTimeout(
+    modelName: string,
+    prompt: string | any[],
+    timeoutMs: number,
+  ): Promise<{ text: string; usage: LlmTokenUsage }> {
     const content = typeof prompt === 'string' ? prompt : this.flattenPromptParts(prompt);
 
     const controller = new AbortController();
@@ -154,9 +159,21 @@ export class CerebrasAdapter implements LlmProviderPort {
 
       const data = (await res.json()) as {
         choices?: Array<{ message?: { content?: string } }>;
+        usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
       };
 
-      return data.choices?.[0]?.message?.content ?? '';
+      const text = data.choices?.[0]?.message?.content ?? '';
+
+      if (!data.usage) {
+        this.logger.warn('cerebras response missing usage — cost tracking will be inaccurate for this call');
+      }
+      const usage: LlmTokenUsage = {
+        promptTokens: data.usage?.prompt_tokens ?? 0,
+        completionTokens: data.usage?.completion_tokens ?? 0,
+        totalTokens: data.usage?.total_tokens ?? 0,
+      };
+
+      return { text, usage };
     } finally {
       clearTimeout(timer);
     }

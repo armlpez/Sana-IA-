@@ -39,7 +39,8 @@ export class AiService {
         // and timeout + retry + classification. If it throws, the error is an AppException.
         let rawText: string;
         try {
-            rawText = await this.resilientLlm.generateWithFallback(MODEL_TIER_PRO, prompt);
+            const llmResult = await this.resilientLlm.generateWithFallback(MODEL_TIER_PRO, prompt);
+            rawText = llmResult.text;
         } catch (err: unknown) {
             // Re-classify in case the inner service threw something unexpected
             const kind = err instanceof AppException

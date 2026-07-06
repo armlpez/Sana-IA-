@@ -70,7 +70,7 @@ describe('GeminiClientService', () => {
             });
 
             const result = await service.generateWithResilience(MODEL_TIER_FAST, 'test prompt');
-            expect(result).toBe('{"result": "ok"}');
+            expect(result.text).toBe('{"result": "ok"}');
         });
 
         it('should throw AppException on timeout (no indefinite hang)', async () => {
@@ -97,7 +97,7 @@ describe('GeminiClientService', () => {
                 });
 
             const result = await service.generateWithResilience(MODEL_TIER_FAST, 'test');
-            expect(result).toBe('success after retry');
+            expect(result.text).toBe('success after retry');
             expect(mockGenerateContent).toHaveBeenCalledTimes(2);
         });
 
@@ -114,7 +114,7 @@ describe('GeminiClientService', () => {
                 });
 
             const result = await service.generateWithResilience(MODEL_TIER_FAST, 'test');
-            expect(result).toBe('recovered');
+            expect(result.text).toBe('recovered');
         });
 
         it('should NOT retry on parse errors', async () => {

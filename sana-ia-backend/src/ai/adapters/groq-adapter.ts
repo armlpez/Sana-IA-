@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Groq from 'groq-sdk';
-import { LlmProviderPort } from '../ports/llm-provider.port';
+import { LlmGenerationResult, LlmProviderPort, LlmTokenUsage } from '../ports/llm-provider.port';
 import { ModelTier, MODEL_TIER_FAST, MODEL_TIER_MID, MODEL_TIER_PRO } from '../config/model-tiers.config';
 import { GeminiErrorKind } from '../utils/gemini-error-kind';
 import { classifyGeminiError } from '../utils/error-classifier';
@@ -63,7 +63,7 @@ export class GroqAdapter implements LlmProviderPort {
     this.retryCapMs = (cfg['retryCapMs'] as number | undefined) ?? 4000;
   }
 
-  async generateWithResilience(tier: ModelTier, prompt: string | any[]): Promise<string> {
+  async generateWithResilience(tier: ModelTier, prompt: string | any[]): Promise<LlmGenerationResult> {
     // Multimodal prompts need a vision-capable model regardless of tier,
     // and always get the slow timeout budget (image processing is not fast-tier work).
     const multimodal = isMultimodalPrompt(prompt);
@@ -85,8 +85,8 @@ export class GroqAdapter implements LlmProviderPort {
       }
 
       try {
-        const response = await this.callWithTimeout(modelName, prompt, timeoutMs);
-        return response;
+        const { text, usage } = await this.callWithTimeout(modelName, prompt, timeoutMs);
+        return { text, usage, model: modelName };
       } catch (err: unknown) {
         const kind = this.classifyError(err);
         lastKind = kind;
@@ -135,7 +135,11 @@ export class GroqAdapter implements LlmProviderPort {
     return this.timeoutFastMs;
   }
 
-  private async callWithTimeout(modelName: string, prompt: string | any[], timeoutMs: number): Promise<string> {
+  private async callWithTimeout(
+    modelName: string,
+    prompt: string | any[],
+    timeoutMs: number,
+  ): Promise<{ text: string; usage: LlmTokenUsage }> {
     // Gemini Part[] prompts must be converted to OpenAI-style content
     // ({type:'text'} / {type:'image_url'}) — Groq rejects Gemini's raw shape.
     const messages: any[] =
@@ -155,7 +159,17 @@ export class GroqAdapter implements LlmProviderPort {
 
     const completion = (await racePromise) as any;
     const text = completion.choices[0]?.message?.content ?? '';
-    return text;
+
+    if (!completion.usage) {
+      this.logger.warn('Groq response missing usage — cost tracking will be inaccurate for this call');
+    }
+    const usage: LlmTokenUsage = {
+      promptTokens: completion.usage?.prompt_tokens ?? 0,
+      completionTokens: completion.usage?.completion_tokens ?? 0,
+      totalTokens: completion.usage?.total_tokens ?? 0,
+    };
+
+    return { text, usage };
   }
 
   /**

@@ -1,6 +1,6 @@
 import { Injectable, Logger, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { LlmProviderPort, LLM_PROVIDER_PORT } from '../ports/llm-provider.port';
+import { LlmGenerationResult, LlmProviderPort, LLM_PROVIDER_PORT } from '../ports/llm-provider.port';
 import { ModelTier } from '../config/model-tiers.config';
 import { GeminiErrorKind } from '../utils/gemini-error-kind';
 import { AppException } from '../../common/exceptions/app-exception';
@@ -105,7 +105,10 @@ export class ResilientLlmService {
    * Stops at the first success, the first non-transient error, or after the
    * chain is exhausted — in which case the caller uses SafeFallbackBuilder.
    */
-  async generateWithFallback(tier: ModelTier, prompt: string | any[]): Promise<string> {
+  async generateWithFallback(
+    tier: ModelTier,
+    prompt: string | any[],
+  ): Promise<LlmGenerationResult & { provider: string }> {
     let chain = [this.primaryProvider, ...this.fallbackChain];
 
     // Multimodal prompts (OCR images) can only be served by vision-capable
@@ -144,7 +147,8 @@ export class ResilientLlmService {
       }
 
       try {
-        return await provider.generateWithResilience(tier, prompt);
+        const result = await provider.generateWithResilience(tier, prompt);
+        return { ...result, provider: provider.getName() };
       } catch (err: unknown) {
         lastErr = err;
         const kind = this.extractErrorKind(err);

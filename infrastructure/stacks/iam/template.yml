@@ -62,6 +62,24 @@ Resources:
                   - s3:GetObject
                   - s3:DeleteObject
                 Resource: !Sub "${LabsBucketArn}/*"
+        - PolicyName: SanaBedrockAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: bedrock:InvokeModel
+                Resource:
+                  # Cross-region inference profiles — what the app actually invokes
+                  # (Nova doesn't support on-demand calls to the bare model ID).
+                  - !Sub "arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:inference-profile/us.amazon.nova-micro-v1:0"
+                  - !Sub "arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:inference-profile/us.amazon.nova-lite-v1:0"
+                  # Foundation models in every US region the profile can route to.
+                  - "arn:aws:bedrock:us-east-1::foundation-model/amazon.nova-micro-v1:0"
+                  - "arn:aws:bedrock:us-east-2::foundation-model/amazon.nova-micro-v1:0"
+                  - "arn:aws:bedrock:us-west-2::foundation-model/amazon.nova-micro-v1:0"
+                  - "arn:aws:bedrock:us-east-1::foundation-model/amazon.nova-lite-v1:0"
+                  - "arn:aws:bedrock:us-east-2::foundation-model/amazon.nova-lite-v1:0"
+                  - "arn:aws:bedrock:us-west-2::foundation-model/amazon.nova-lite-v1:0"
 
   BackendInstanceProfile:
     Type: AWS::IAM::InstanceProfile

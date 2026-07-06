@@ -74,10 +74,11 @@ export class OcrWorker extends WorkerHost {
             // 5. Call the multi-provider fallback chain (Gemini → Groq vision).
             // MODEL_TIER_PRO → timeoutSlowMs (30s) to accommodate Vision OCR (8-15s typical).
             // The fast tier (8s) is too tight for image processing.
-            const rawText = await this.resilientLlm.generateWithFallback(
+            const llmResult = await this.resilientLlm.generateWithFallback(
                 MODEL_TIER_PRO,
                 prompt,
             );
+            const rawText = llmResult.text;
 
             // 6. Parse structured biomarkers
             const extractedData = this.parseBiomarkers(rawText);
@@ -89,6 +90,14 @@ export class OcrWorker extends WorkerHost {
                 extractedData,
                 // rawText is intentionally omitted (don't store raw LLM output for PHI-safety)
                 processingTimeMs,
+                metadata: {
+                    provider: llmResult.provider,
+                    model: llmResult.model,
+                    tier: MODEL_TIER_PRO,
+                    tokensUsed: llmResult.usage.totalTokens,
+                    promptTokens: llmResult.usage.promptTokens,
+                    completionTokens: llmResult.usage.completionTokens,
+                },
             });
 
             this.logger.log(
@@ -112,7 +121,8 @@ export class OcrWorker extends WorkerHost {
             // Persist detailed error info to DB
             await this.ocrResultRepo.update(ocrResultId, {
                 status: OcrJobStatus.FAILED,
-                errorMessage: errorDetails.userMessage,
+                errorMessage: errorDetails.userMessage,          // Public: shown to client
+                internalErrorMessage: errorDetails.message,      // Internal: for debugging
                 processingTimeMs,
             });
         } finally {

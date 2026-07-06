@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pipeline de Sistema - SANA</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background: #f0f2f5;
+            margin: 0;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            width: 95%;
+            max-width: 1200px;
+        }
+
+        h1 {
+            color: #333;
+            text-align: center;
+        }
+
+        .mermaid {
+            display: flex;
+            justify-content: center;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>Pipeline de Procesamiento del Sistema</h1>
+        <div class="mermaid">
+            flowchart LR
+            subgraph Input_Layer ["Capa de Entrada"]
+            Audio((Audio Voz))
+            Text((Texto))
+            Image((Imagen Lab))
+            end
+
+            subgraph Pre_Processing ["Pre-Procesamiento"]
+            Audio --> STT[Speech to Text]
+            Text & STT --> Sanitize[Sanitización]
+            Image --> Resize[Optimización Imagen]
+            end
+
+            subgraph AI_Core ["Núcleo IA (NestJS Services)"]
+            Sanitize --> NLP_Svc[NLP Service]
+            Resize --> OCR_Svc[OCR Service]
+
+            NLP_Svc --> Prompt_Builder[Prompt Builder]
+            OCR_Svc --> Prompt_Builder
+
+            DB[(Historial Médico)] --> Context[Contexto Usuario]
+            Context --> Prompt_Builder
+            end
+
+            subgraph Inference ["Inferencia (Gemini 1.5 Pro)"]
+            Prompt_Builder --> Request[API Request Multimodal]
+            Request --> LLM[Modelo Gemini]
+            LLM --> Parser[JSON Response Parser]
+            end
+
+            subgraph Post_Processing ["Post-Procesamiento"]
+            Parser --> Validator[Validación Schema]
+            Validator --> DB_Save[(Persistencia PostgreSQL)]
+            Validator --> PDF_Gen[Generador PDF]
+            end
+
+            Post_Processing --> API_Response([Respuesta API])
+        </div>
+    </div>
+    <script type="module">
+        import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+        mermaid.initialize({ startOnLoad: true, theme: 'forest' });
+    </script>
+</body>
+
+</html>

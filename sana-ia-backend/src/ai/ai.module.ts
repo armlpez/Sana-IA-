@@ -8,6 +8,7 @@ import { ResilientLlmService } from './services/resilient-llm.service';
 import { GeminiAdapter } from './adapters/gemini-adapter';
 import { GroqAdapter } from './adapters/groq-adapter';
 import { CerebrasAdapter } from './adapters/cerebras-adapter';
+import { BedrockAdapter } from './adapters/bedrock-adapter';
 import { createLlmProviderFactory } from './factories/llm-provider.factory';
 import { ConsultationsModule } from '../consultations/consultations.module';
 import { ChatMessagesModule } from '../chat-messages/chat-messages.module';
@@ -27,6 +28,7 @@ import aiModelsConfig from './config/model-tiers.config';
         GeminiClientService,
         GroqAdapter,
         CerebrasAdapter,
+        BedrockAdapter,
         GeminiAdapter,
         createLlmProviderFactory(),
         ResilientLlmService,

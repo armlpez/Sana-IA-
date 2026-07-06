@@ -19,6 +19,13 @@ const MULTIMODAL_PROMPT = [
     { inlineData: { data: 'base64data', mimeType: 'image/png' } },
 ];
 
+const ZERO_USAGE = { promptTokens: 0, completionTokens: 0, totalTokens: 0 };
+
+/** Builds the LlmGenerationResult shape returned by a successful provider call. */
+function genResult(text: string, model = 'test-model') {
+    return { text, usage: ZERO_USAGE, model };
+}
+
 function rateLimitedError(): AppException {
     return new AppException({
         errorCode: ErrorCode.AI_RATE_LIMITED,
@@ -73,12 +80,13 @@ describe('ResilientLlmService', () => {
     });
 
     it('returns the primary provider result when it succeeds', async () => {
-        gemini.generateWithResilience.mockResolvedValueOnce('respuesta de gemini');
+        gemini.generateWithResilience.mockResolvedValueOnce(genResult('respuesta de gemini'));
 
         const service = new ResilientLlmService(providers, createConfigService());
         const result = await service.generateWithFallback(MODEL_TIER_FAST, 'hola');
 
-        expect(result).toBe('respuesta de gemini');
+        expect(result.text).toBe('respuesta de gemini');
+        expect(result.provider).toBe('gemini');
         expect(gemini.generateWithResilience).toHaveBeenCalledTimes(1);
         expect(groq.generateWithResilience).not.toHaveBeenCalled();
         expect(cerebras.generateWithResilience).not.toHaveBeenCalled();
@@ -86,12 +94,12 @@ describe('ResilientLlmService', () => {
 
     it('falls back to the next provider in the chain on RATE_LIMITED', async () => {
         gemini.generateWithResilience.mockRejectedValueOnce(rateLimitedError());
-        groq.generateWithResilience.mockResolvedValueOnce('respuesta de groq');
+        groq.generateWithResilience.mockResolvedValueOnce(genResult('respuesta de groq'));
 
         const service = new ResilientLlmService(providers, createConfigService());
         const result = await service.generateWithFallback(MODEL_TIER_FAST, 'hola');
 
-        expect(result).toBe('respuesta de groq');
+        expect(result.text).toBe('respuesta de groq');
         expect(gemini.generateWithResilience).toHaveBeenCalledTimes(1);
         expect(groq.generateWithResilience).toHaveBeenCalledTimes(1);
         expect(cerebras.generateWithResilience).not.toHaveBeenCalled();
@@ -100,12 +108,12 @@ describe('ResilientLlmService', () => {
     it('walks the full chain (gemini -> groq -> cerebras) when both prior providers are rate-limited', async () => {
         gemini.generateWithResilience.mockRejectedValueOnce(rateLimitedError());
         groq.generateWithResilience.mockRejectedValueOnce(unavailableError());
-        cerebras.generateWithResilience.mockResolvedValueOnce('respuesta de cerebras');
+        cerebras.generateWithResilience.mockResolvedValueOnce(genResult('respuesta de cerebras'));
 
         const service = new ResilientLlmService(providers, createConfigService());
         const result = await service.generateWithFallback(MODEL_TIER_FAST, 'hola');
 
-        expect(result).toBe('respuesta de cerebras');
+        expect(result.text).toBe('respuesta de cerebras');
         expect(gemini.generateWithResilience).toHaveBeenCalledTimes(1);
         expect(groq.generateWithResilience).toHaveBeenCalledTimes(1);
         expect(cerebras.generateWithResilience).toHaveBeenCalledTimes(1);
@@ -162,12 +170,12 @@ describe('ResilientLlmService', () => {
 
     it('falls back on PARSE errors too (fallback-on-all-errors policy)', async () => {
         gemini.generateWithResilience.mockRejectedValueOnce(parseError());
-        groq.generateWithResilience.mockResolvedValueOnce('respuesta de groq');
+        groq.generateWithResilience.mockResolvedValueOnce(genResult('respuesta de groq'));
 
         const service = new ResilientLlmService(providers, createConfigService());
         const result = await service.generateWithFallback(MODEL_TIER_FAST, 'hola');
 
-        expect(result).toBe('respuesta de groq');
+        expect(result.text).toBe('respuesta de groq');
         expect(gemini.generateWithResilience).toHaveBeenCalledTimes(1);
         expect(groq.generateWithResilience).toHaveBeenCalledTimes(1);
         expect(cerebras.generateWithResilience).not.toHaveBeenCalled();
@@ -191,12 +199,12 @@ describe('ResilientLlmService', () => {
 
     it('serves multimodal prompts via the groq vision fallback when gemini is rate-limited', async () => {
         gemini.generateWithResilience.mockRejectedValueOnce(rateLimitedError());
-        groq.generateWithResilience.mockResolvedValueOnce('{"biomarkers":[]}');
+        groq.generateWithResilience.mockResolvedValueOnce(genResult('{"biomarkers":[]}'));
 
         const service = new ResilientLlmService(providers, createConfigService());
         const result = await service.generateWithFallback(MODEL_TIER_FAST, MULTIMODAL_PROMPT);
 
-        expect(result).toBe('{"biomarkers":[]}');
+        expect(result.text).toBe('{"biomarkers":[]}');
         expect(cerebras.generateWithResilience).not.toHaveBeenCalled();
     });
 
@@ -215,7 +223,7 @@ describe('ResilientLlmService', () => {
 
     it('respects a single-provider legacy LLM_FALLBACK_PROVIDER when LLM_FALLBACK_CHAIN is unset', async () => {
         gemini.generateWithResilience.mockRejectedValueOnce(rateLimitedError());
-        groq.generateWithResilience.mockResolvedValueOnce('respuesta de groq');
+        groq.generateWithResilience.mockResolvedValueOnce(genResult('respuesta de groq'));
 
         const service = new ResilientLlmService(
             providers,
@@ -223,7 +231,7 @@ describe('ResilientLlmService', () => {
         );
         const result = await service.generateWithFallback(MODEL_TIER_FAST, 'hola');
 
-        expect(result).toBe('respuesta de groq');
+        expect(result.text).toBe('respuesta de groq');
         expect(cerebras.generateWithResilience).not.toHaveBeenCalled();
     });
 

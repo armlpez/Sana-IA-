@@ -59,6 +59,15 @@ export default registerAs('aiModels', () => ({
     cerebrasModelAnalyzing: process.env.CEREBRAS_MODEL_ANALYZING ?? 'llama3.1-8b',
     cerebrasModelCompleted: process.env.CEREBRAS_MODEL_COMPLETED ?? 'llama-3.3-70b',
 
+    // Bedrock (Amazon Nova) model IDs per tier. These are cross-region inference
+    // profiles (us.amazon.nova-*) — Nova does NOT support invoking the bare
+    // foundation-model ID on-demand. Nova Micro is text-only and the cheapest;
+    // Nova Lite is multimodal, used for the completed tier and all vision (OCR) calls.
+    bedrockModelCollecting: process.env.BEDROCK_MODEL_COLLECTING ?? 'us.amazon.nova-micro-v1:0',
+    bedrockModelAnalyzing: process.env.BEDROCK_MODEL_ANALYZING ?? 'us.amazon.nova-micro-v1:0',
+    bedrockModelCompleted: process.env.BEDROCK_MODEL_COMPLETED ?? 'us.amazon.nova-lite-v1:0',
+    bedrockModelVision: process.env.BEDROCK_MODEL_VISION ?? 'us.amazon.nova-lite-v1:0',
+
     // Timeout per tier group (ms)
     // OCR (Gemini Vision, 8-15s typical) uses MODEL_TIER_PRO → timeoutSlowMs.
     // Chat/collecting uses timeoutFastMs → kept at 8s for responsive UX.
@@ -66,11 +75,12 @@ export default registerAs('aiModels', () => ({
     timeoutSlowMs: parseInt(process.env.GEMINI_TIMEOUT_SLOW_MS ?? '30000', 10),
 
     // Retry policy (applied only to transient errors: 429, 503)
-    // Primary provider (Gemini) retries deeply; fallback providers fail-fast
+    // The primary provider retries deeply; fallback providers fail-fast
     // because the fallback chain itself is the macro-level retry mechanism.
     retryMax: parseInt(process.env.GEMINI_RETRY_MAX ?? '2', 10),
     groqRetryMax: parseInt(process.env.GROQ_RETRY_MAX ?? '0', 10),
     cerebrasRetryMax: parseInt(process.env.CEREBRAS_RETRY_MAX ?? '0', 10),
+    bedrockRetryMax: parseInt(process.env.BEDROCK_RETRY_MAX ?? '2', 10),
     retryBaseMs: parseInt(process.env.GEMINI_RETRY_BASE_MS ?? '500', 10),
     retryCapMs: parseInt(process.env.GEMINI_RETRY_CAP_MS ?? '4000', 10),
 
