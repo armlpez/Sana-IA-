@@ -20,8 +20,16 @@ Thumbs.db
 local-battery.mjs
 e2e_simulation.*
 
+# Scratch/exploration scripts (temporary development utilities)
+scratch/list-models*.js
+scratch/*.local.js
+
 # Planning artifacts (should not be tracked; use docs/ for actual documentation)
 **/implementation_plan.md.*
 **/planning-*.md
 **/*.resolved
 **/*.draft
+
+# Generated documentation artifacts (keep source .md files, not HTML)
+functional-docs/*.html
+docs/*.html
