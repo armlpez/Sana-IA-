@@ -9,4 +9,6 @@ infrastructure/samconfig.toml
 .DS_Store
 Thumbs.db
 
+# --- CLI/IDE artifacts, debug outputs, and temporary files ---
+.atl/
 .atlcheck.json
