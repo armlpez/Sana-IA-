@@ -219,8 +219,20 @@ Resources:
 
           echo "=== SANA UserData: provisioning done ==="
 
+  # Static public IP — without this, every stop/start cycle (e.g. to save cost
+  # when idle) hands the instance a NEW ephemeral public IP, breaking anything
+  # that hardcoded the old one (test scripts, mobile app config, DNS).
+  BackendEip:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+      InstanceId: !Ref BackendInstance
+      Tags:
+        - Key: Name
+          Value: !Sub "sana-backend-eip-${Env}"
+
 Outputs:
   PublicIp:
-    Value: !GetAtt BackendInstance.PublicIp
+    Value: !GetAtt BackendEip.PublicIp
   InstanceId:
     Value: !Ref BackendInstance

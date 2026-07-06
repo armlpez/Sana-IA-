@@ -1,4 +1,4 @@
-FROM node:20-bookworm-slim AS builder
+FROM node:24.18.0-bookworm-slim AS builder
 WORKDIR /app
 
 # bcrypt has native bindings; debian needs build tools to compile it
@@ -11,7 +11,7 @@ COPY . .
 RUN npm run build
 RUN npm prune --omit=dev
 
-FROM node:20-bookworm-slim AS runner
+FROM node:24.18.0-bookworm-slim AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 
