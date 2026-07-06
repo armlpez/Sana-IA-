@@ -12,3 +12,16 @@ Thumbs.db
 # --- CLI/IDE artifacts, debug outputs, and temporary files ---
 .atl/
 .atlcheck.json
+
+# --- Development/debug scripts and planning artifacts ---
+# Local test batteries and manual E2E simulations
+*.local.mjs
+*.local.js
+local-battery.mjs
+e2e_simulation.*
+
+# Planning artifacts (should not be tracked; use docs/ for actual documentation)
+**/implementation_plan.md.*
+**/planning-*.md
+**/*.resolved
+**/*.draft
