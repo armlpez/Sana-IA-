@@ -48,7 +48,27 @@ export class AuthController {
 
     @UseGuards(JwtAuthGuard)
     @Patch('profile')
-    updateProfile(@Request() req, @Body() updateUserDto: UpdateUserDto) {
+    async updateProfile(@Request() req, @Body() updateUserDto: UpdateUserDto) {
+        const { email, ...otherFields } = updateUserDto;
+
+        // Changing the email never overwrites it directly — it goes through
+        // requestEmailChange (pendingEmail + verification link) so the user
+        // is never logged out / locked out of their current session.
+        if (email && email !== req.user.email) {
+            let updatedUser: unknown;
+
+            if (Object.keys(otherFields).length > 0) {
+                updatedUser = await this.usersService.update(req.user.id, otherFields as UpdateUserDto);
+            }
+
+            const { message } = await this.usersService.requestEmailChange(req.user.id, email);
+
+            return {
+                ...(typeof updatedUser === 'object' && updatedUser !== null ? updatedUser : {}),
+                message,
+            };
+        }
+
         return this.usersService.update(req.user.id, updateUserDto);
     }
 

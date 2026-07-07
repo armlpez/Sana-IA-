@@ -29,6 +29,8 @@ export class UserSeeder {
                 birthDate: new Date(),
                 disclaimerAccepted: true,
                 role: adminRole,
+                isEmailVerified: true,
+                emailVerifiedAt: new Date(),
             },
             {
                 email: 'user@gmail.com',
@@ -37,6 +39,8 @@ export class UserSeeder {
                 birthDate: new Date(),
                 disclaimerAccepted: true,
                 role: userRole,
+                isEmailVerified: true,
+                emailVerifiedAt: new Date(),
             },
         ];
 

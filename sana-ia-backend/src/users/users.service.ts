@@ -4,9 +4,14 @@ import { UpdateUserDto } from './dto/update-user.dto';
 import { User } from './entities/user.entity';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { Role } from 'src/roles/entities/role.entity';
+import { Role } from '../roles/entities/role.entity';
 import * as bcrypt from 'bcrypt';
-import { RoleEnum } from 'src/enums/role.enums';
+import { RoleEnum } from '../enums/role.enums';
+import { ConfigService } from '@nestjs/config';
+import { TokenService } from '../tokens/token.service';
+import { TokenType } from '../tokens/enums/token-type.enum';
+import { EmailProducer } from '../email/email.producer';
+import { verificationEmailTemplate } from '../email/templates/verification-email.template';
 
 @Injectable()
 export class UsersService {
@@ -18,6 +23,9 @@ export class UsersService {
     private userRepository: Repository<User>,
     @InjectRepository(Role)
     private roleRepository: Repository<Role>,
+    private readonly tokenService: TokenService,
+    private readonly emailProducer: EmailProducer,
+    private readonly configService: ConfigService,
   ) { }
 
   async create(createUserDto: CreateUserDto) {
@@ -43,10 +51,17 @@ export class UsersService {
       const userInstance = this.userRepository.create({
         ...createUserDto,
         password: hashedPassword,
-        role: role
+        role: role,
+        isEmailVerified: false,
       })
 
-      return await this.userRepository.save(userInstance);
+      const savedUser = await this.userRepository.save(userInstance);
+
+      // Verification email issuance/enqueue must NOT roll back registration:
+      // the user can always request a new link via resend-verification later.
+      await this.issueAndSendVerificationEmail(savedUser.id, savedUser.email);
+
+      return savedUser;
 
     } catch (error) {
       // Domain errors (e.g. duplicate email -> ConflictException 409, missing role
@@ -57,6 +72,76 @@ export class UsersService {
       }
       this.logger.error('Error creating user', error.stack);
       throw new InternalServerErrorException('Error creating user');
+    }
+  }
+
+  /**
+   * Issues an EMAIL_VERIFICATION token for `targetEmail` and enqueues the
+   * verification email. Failures here must NEVER roll back the caller's
+   * transaction (registration / email-change): log and continue — the user
+   * can always request a new link via resend-verification later.
+   */
+  private async issueAndSendVerificationEmail(userId: number, targetEmail: string): Promise<void> {
+    try {
+      const rawToken = await this.tokenService.issue(userId, TokenType.EMAIL_VERIFICATION, targetEmail);
+      const frontendUrl = this.configService.get<string>('FRONTEND_URL');
+      const emailContent = verificationEmailTemplate(frontendUrl as string, rawToken);
+
+      await this.emailProducer.enqueue({
+        to: targetEmail,
+        ...emailContent,
+      });
+    } catch (error) {
+      this.logger.error(
+        `Failed to issue/enqueue verification email for user ${userId} (${targetEmail})`,
+        error.stack,
+      );
+    }
+  }
+
+  /**
+   * Starts an email change: validates the new address isn't already taken,
+   * stores it in `pendingEmail` WITHOUT touching `email` (no logout, no
+   * isEmailVerified change on the current account), and issues a
+   * verification email to the NEW address. The change only takes effect
+   * once the user clicks the verification link (handled by auth's
+   * verify-email flow, which swaps email <- pendingEmail).
+   */
+  async requestEmailChange(userId: number, newEmail: string): Promise<{ message: string }> {
+    try {
+      const user = await this.userRepository.findOneBy({ id: userId });
+
+      if (!user) {
+        this.logger.warn(`User with id ${userId} not found`);
+        throw new NotFoundException('User not found');
+      }
+
+      if (newEmail !== user.email) {
+        const existingUser = await this.userRepository.findOneBy({ email: newEmail });
+
+        if (existingUser && existingUser.id !== userId) {
+          this.logger.warn(`Email ${newEmail} already in use`);
+          throw new ConflictException('Email already in use');
+        }
+      }
+
+      user.pendingEmail = newEmail;
+      await this.userRepository.save(user);
+
+      await this.issueAndSendVerificationEmail(userId, newEmail);
+
+      return {
+        message:
+          'Tu solicitud de cambio de correo fue registrada. Te enviamos un enlace de verificación a tu nueva dirección; tu correo actual seguirá activo hasta que confirmes el cambio.',
+      };
+
+    } catch (error) {
+
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      this.logger.error(`Error requesting email change for user ${userId}`, error.stack);
+      throw new InternalServerErrorException('Error requesting email change');
     }
   }
 
