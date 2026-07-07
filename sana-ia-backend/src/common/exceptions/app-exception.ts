@@ -27,14 +27,14 @@ export class AppException extends HttpException {
     super(
       {
         statusCode,
-        message: publicMessage || AppException.getDefaultPublicMessage(statusCode),
+        message,
         errorCode,
       },
       statusCode,
     );
 
     this.errorCode = errorCode;
-    this.publicMessage = publicMessage || message;
+    this.publicMessage = publicMessage || AppException.getDefaultPublicMessage(statusCode);
     this.context = context || {};
     this.originalError = cause;
 

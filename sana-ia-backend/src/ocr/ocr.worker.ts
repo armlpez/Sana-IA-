@@ -164,7 +164,7 @@ export class OcrWorker extends WorkerHost {
                 code,
                 stack,
                 userMessage: isAppException
-                    ? `[${code}] ${err.message.substring(0, 200)}`
+                    ? (err as any).publicMessage.substring(0, 200)
                     : `[PROCESSING_ERROR] OCR processing failed: ${err.message.substring(0, 150)}`,
             };
         }

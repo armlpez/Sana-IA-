@@ -4,7 +4,7 @@ services:
     container_name: sana-redis
     ports:
       - "${REDIS_PORT:-6379}:6379"
-    command: redis-server --appendonly no --maxmemory 128mb --maxmemory-policy allkeys-lru
+    command: redis-server --appendonly no --maxmemory 128mb --maxmemory-policy noeviction
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]

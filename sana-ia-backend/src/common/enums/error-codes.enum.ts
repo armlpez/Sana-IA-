@@ -37,4 +37,7 @@ export enum ErrorCode {
   // System (50x)
   INTERNAL_ERROR = 'ERR_INTERNAL_001',
   SERVICE_UNAVAILABLE = 'ERR_SERVICE_UNAVAILABLE_001',
+
+  // Generic / Routing (40x)
+  RESOURCE_NOT_FOUND = 'ERR_RESOURCE_001',
 }

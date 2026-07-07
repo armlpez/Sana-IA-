@@ -176,7 +176,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       [HttpStatus.BAD_REQUEST]: ErrorCode.VALIDATION_ERROR,
       [HttpStatus.UNAUTHORIZED]: ErrorCode.AUTH_UNAUTHORIZED,
       [HttpStatus.FORBIDDEN]: ErrorCode.AUTH_FORBIDDEN,
-      [HttpStatus.NOT_FOUND]: ErrorCode.USER_NOT_FOUND,
+      [HttpStatus.NOT_FOUND]: ErrorCode.RESOURCE_NOT_FOUND,
       [HttpStatus.CONFLICT]: ErrorCode.USER_CONFLICT,
       [HttpStatus.INTERNAL_SERVER_ERROR]: ErrorCode.INTERNAL_ERROR,
       [HttpStatus.SERVICE_UNAVAILABLE]: ErrorCode.SERVICE_UNAVAILABLE,

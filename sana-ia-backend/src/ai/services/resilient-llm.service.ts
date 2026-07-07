@@ -126,6 +126,7 @@ export class ResilientLlmService {
           errorCode: ErrorCode.AI_UNAVAILABLE,
           message: 'No vision-capable LLM provider is configured for multimodal prompts.',
           statusCode: 500,
+          publicMessage: 'El servicio de IA no está disponible en este momento. Por favor, intentá de nuevo.',
         });
       }
     }
