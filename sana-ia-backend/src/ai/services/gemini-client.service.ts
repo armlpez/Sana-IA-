@@ -1,6 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { HttpStatus } from '@nestjs/common';
 import {
     GoogleGenerativeAI,
     GenerativeModel,
@@ -8,10 +7,12 @@ import {
 } from '@google/generative-ai';
 import { GeminiErrorKind } from '../utils/gemini-error-kind';
 import { classifyGeminiError } from '../utils/error-classifier';
-import { ModelTier, MODEL_TIER_FAST, MODEL_TIER_MID } from '../config/model-tiers.config';
-import { AppException } from '../../common/exceptions/app-exception';
-import { ErrorCode } from '../../common/enums/error-codes.enum';
+import { ModelTier } from '../config/model-tiers.config';
 import { LlmGenerationResult, LlmTokenUsage } from '../ports/llm-provider.port';
+import { computeBackoff, sleep } from '../resilience/backoff.util';
+import { extractErrorDetail } from '../resilience/error-detail.util';
+import { buildAiProviderException } from '../resilience/exception.util';
+import { resolveModelName, resolveTimeout } from '../resilience/model-resolution.util';
 
 /**
  * The set of GeminiErrorKinds that are transient and eligible for retry.
@@ -86,8 +87,15 @@ export class GeminiClientService {
      * Throws AppException on terminal (non-retryable or exhausted) failure.
      */
     async generateWithResilience(tier: ModelTier, prompt: string | Part[]): Promise<LlmGenerationResult> {
-        const modelName = this.resolveModelName(tier);
-        const timeoutMs = this.resolveTimeout(tier);
+        const modelName = resolveModelName(tier, {
+            fast: this.modelFast,
+            mid: this.modelMid,
+            slow: this.modelSlow,
+        });
+        const timeoutMs = resolveTimeout(tier, {
+            fastMs: this.timeoutFastMs,
+            slowMs: this.timeoutSlowMs,
+        });
         const model = this.getOrCreateModel(modelName);
 
         let lastKind: GeminiErrorKind = GeminiErrorKind.UNKNOWN;
@@ -97,11 +105,11 @@ export class GeminiClientService {
             const isRetry = attempt > 0;
 
             if (isRetry) {
-                const backoff = this.computeBackoff(attempt);
+                const backoff = computeBackoff(attempt, this.retryBaseMs, this.retryCapMs);
                 this.logger.warn(
                     `Retrying Gemini call (attempt ${attempt}/${this.retryMax}) after ${backoff}ms — kind: ${lastKind}`,
                 );
-                await this.sleep(backoff);
+                await sleep(backoff);
             }
 
             try {
@@ -111,7 +119,7 @@ export class GeminiClientService {
                 const kind = classifyGeminiError(err);
                 lastKind = kind;
 
-                const errDetail = this.extractErrorDetail(err);
+                const errDetail = extractErrorDetail(err);
                 this.logger.error(
                     `Gemini error on attempt ${attempt} — kind: ${kind}, model: ${modelName}, ` +
                     `status: ${errDetail.status}, message: ${errDetail.message}`,
@@ -121,7 +129,7 @@ export class GeminiClientService {
                 }
 
                 if (!RETRYABLE_KINDS.has(kind) || attempt >= this.retryMax) {
-                    throw this.toAppException(kind, attempt);
+                    throw buildAiProviderException({ providerName: 'Gemini', kind, attempt });
                 }
 
                 attempt++;
@@ -129,24 +137,12 @@ export class GeminiClientService {
         }
 
         // Should be unreachable, but satisfies TypeScript
-        throw this.toAppException(lastKind, attempt);
+        throw buildAiProviderException({ providerName: 'Gemini', kind: lastKind, attempt });
     }
 
     // ---------------------------------------------------------------------------
     // Private helpers
     // ---------------------------------------------------------------------------
-
-    private resolveModelName(tier: ModelTier): string {
-        if (tier === MODEL_TIER_FAST) return this.modelFast;
-        if (tier === MODEL_TIER_MID) return this.modelMid;
-        return this.modelSlow;
-    }
-
-    private resolveTimeout(tier: ModelTier): number {
-        return tier === MODEL_TIER_FAST || tier === MODEL_TIER_MID
-            ? this.timeoutFastMs
-            : this.timeoutSlowMs;
-    }
 
     /**
      * Returns a cached GenerativeModel for the given model name.
@@ -202,86 +198,5 @@ export class GeminiClientService {
         };
 
         return { text, usage };
-    }
-
-    /**
-     * Full-jitter exponential backoff.
-     * delay = random(0, min(cap, base * 2^attempt))
-     */
-    private computeBackoff(attempt: number): number {
-        const ceiling = Math.min(this.retryCapMs, this.retryBaseMs * Math.pow(2, attempt));
-        return Math.floor(Math.random() * ceiling);
-    }
-
-    private sleep(ms: number): Promise<void> {
-        return new Promise((resolve) => setTimeout(resolve, ms));
-    }
-
-    /**
-     * Extract structured detail from any error shape for rich logging.
-     * Handles: Gemini SDK GoogleGenerativeAIError, plain Error, timeout sentinel objects.
-     */
-    private extractErrorDetail(err: unknown): { status: string; message: string; raw?: string } {
-        if (!err) return { status: 'N/A', message: 'null/undefined error' };
-
-        const e = err as any;
-        const status = e.status ?? e.statusCode ?? e.httpStatus ?? e.code ?? 'N/A';
-        const message = e.message ?? String(err);
-        // Gemini SDK errors may expose .errorDetails or .response
-        let raw: string | undefined;
-        try {
-            const details = e.errorDetails ?? e.response?.data ?? e.cause;
-            if (details) {
-                raw = typeof details === 'string' ? details.substring(0, 500) : JSON.stringify(details).substring(0, 500);
-            }
-        } catch { /* ignore serialization errors */ }
-
-        return { status: String(status), message: message.substring(0, 300), raw };
-    }
-
-    private toAppException(kind: GeminiErrorKind, attempt: number): AppException {
-        const attemptInfo = `after ${attempt + 1} attempt(s)`;
-
-        switch (kind) {
-            case GeminiErrorKind.RATE_LIMITED:
-                return new AppException({
-                    errorCode: ErrorCode.AI_RATE_LIMITED,
-                    message: `Gemini rate-limited ${attemptInfo}`,
-                    statusCode: HttpStatus.SERVICE_UNAVAILABLE,
-                    publicMessage: 'El servicio de IA no está disponible en este momento. Por favor, intentá de nuevo.',
-                });
-
-            case GeminiErrorKind.UNAVAILABLE:
-                return new AppException({
-                    errorCode: ErrorCode.AI_UNAVAILABLE,
-                    message: `Gemini unavailable ${attemptInfo}`,
-                    statusCode: HttpStatus.SERVICE_UNAVAILABLE,
-                    publicMessage: 'El servicio de IA no está disponible en este momento. Por favor, intentá de nuevo.',
-                });
-
-            case GeminiErrorKind.TIMEOUT:
-                return new AppException({
-                    errorCode: ErrorCode.AI_TIMEOUT,
-                    message: `Gemini timed out ${attemptInfo}`,
-                    statusCode: HttpStatus.SERVICE_UNAVAILABLE,
-                    publicMessage: 'El servicio de IA tardó demasiado. Por favor, intentá de nuevo.',
-                });
-
-            case GeminiErrorKind.PARSE:
-                return new AppException({
-                    errorCode: ErrorCode.AI_PARSE_FAILED,
-                    message: `Gemini parse failure ${attemptInfo}`,
-                    statusCode: HttpStatus.SERVICE_UNAVAILABLE,
-                    publicMessage: 'El servicio de IA no pudo procesar la respuesta. Por favor, intentá de nuevo.',
-                });
-
-            default:
-                return new AppException({
-                    errorCode: ErrorCode.AI_SERVICE_ERROR,
-                    message: `Gemini unknown error (kind=${kind}) ${attemptInfo}`,
-                    statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
-                    publicMessage: 'Error interno en el servicio de IA.',
-                });
-        }
     }
 }
