@@ -1,16 +1,21 @@
-import { Controller, Post, Body, Get, UseGuards, Request } from '@nestjs/common';
+import { Controller, Post, Body, Get, Patch, UseGuards, Request } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { RolesGuard } from './guards/roles.guard';
 import { Roles } from './decorators/roles.decorator';
 import { RoleEnum } from './enums/role.enum';
+import { UsersService } from '../users/users.service';
+import { UpdateUserDto } from '../users/dto/update-user.dto';
 
 import { JwtRefreshGuard } from './guards/jwt-refresh.guard';
 
 @Controller({ path: 'auth', version: '1' })
 export class AuthController {
-    constructor(private readonly authService: AuthService) { }
+    constructor(
+        private readonly authService: AuthService,
+        private readonly usersService: UsersService,
+    ) { }
 
     @Post('login')
     async login(@Body() loginDto: LoginDto) {
@@ -39,6 +44,12 @@ export class AuthController {
     @Get('profile')
     getProfile(@Request() req) {
         return req.user;
+    }
+
+    @UseGuards(JwtAuthGuard)
+    @Patch('profile')
+    updateProfile(@Request() req, @Body() updateUserDto: UpdateUserDto) {
+        return this.usersService.update(req.user.id, updateUserDto);
     }
 
     @UseGuards(JwtAuthGuard, RolesGuard)
