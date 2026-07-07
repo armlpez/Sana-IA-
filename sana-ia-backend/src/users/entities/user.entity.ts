@@ -32,6 +32,15 @@ export class User {
     @Column({ nullable: true })
     disclaimerAcceptedAt: Date;
 
+    @Column({ default: false })
+    isEmailVerified: boolean;
+
+    @Column({ nullable: true })
+    emailVerifiedAt: Date;
+
+    @Column({ length: 255, nullable: true })
+    pendingEmail: string;
+
     @CreateDateColumn({ type: 'timestamp' })
     createdAt: Date;
 

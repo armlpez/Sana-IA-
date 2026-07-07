@@ -44,6 +44,24 @@ import aiModelsConfig from './ai/config/model-tiers.config';
         // PRODUCTION: limit: parseInt(process.env.CHAT_RATE_LIMIT_PER_MIN ?? '12', 10),
         limit: 1000,
       },
+      {
+        name: 'auth-sensitive',
+        // PRODUCTION: security-critical anti-abuse tier (forgot-password,
+        // resend-verification, reset-password, verify-email). Unlike
+        // 'default'/'chat' above, these are the actual PRODUCTION values —
+        // not loosened for testing — because loosening a brute-force/
+        // enumeration guard defeats its purpose. 15 min window, 5 req/IP.
+        ttl: 900_000,
+        limit: 5,
+      },
+      {
+        name: 'registration',
+        // PRODUCTION: anti-abuse tier for POST /v1/users. Actual production
+        // value (see 'auth-sensitive' comment above for rationale).
+        // 1 hour window, 10 req/IP.
+        ttl: 3_600_000,
+        limit: 10,
+      },
     ]),
     BullModule.forRootAsync({
       inject: [ConfigService],

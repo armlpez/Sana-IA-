@@ -1,37 +1,48 @@
 import { HttpStatus } from '@nestjs/common';
 import { AppException } from '../common/exceptions/app-exception';
 import { ErrorCode } from '../common/enums/error-codes.enum';
+import { TokenType } from './enums/token-type.enum';
 
 /**
  * Token-specific exception factory.
  *
- * TODO(PR2): swap `ErrorCode.VALIDATION_ERROR` below for the dedicated
- * ERR_AUTH_007..011 codes once `error-codes.enum.ts` gains them (PR2 scope —
- * that file stays out of this leaf-only PR). Spec assertions for TokenService
- * target `publicMessage` + HTTP status (400), NOT the enum value, so this
- * swap is a one-line change per function with zero test churn.
+ * Error codes are selected by `type` per the proposal's ErrorCode table:
+ * PASSWORD_RESET -> ERR_AUTH_008 (invalid) / ERR_AUTH_009 (expired);
+ * EMAIL_VERIFICATION -> ERR_AUTH_010 (invalid) / ERR_AUTH_011 (expired).
+ * A consumed (already-used) token reuses the "invalid" code for its type —
+ * the proposal has no distinct "consumed" code, only invalid/expired.
  */
-export function invalidTokenException(): AppException {
+const INVALID_CODE_BY_TYPE: Record<TokenType, ErrorCode> = {
+  [TokenType.PASSWORD_RESET]: ErrorCode.AUTH_RESET_TOKEN_INVALID,
+  [TokenType.EMAIL_VERIFICATION]: ErrorCode.AUTH_VERIFICATION_TOKEN_INVALID,
+};
+
+const EXPIRED_CODE_BY_TYPE: Record<TokenType, ErrorCode> = {
+  [TokenType.PASSWORD_RESET]: ErrorCode.AUTH_RESET_TOKEN_EXPIRED,
+  [TokenType.EMAIL_VERIFICATION]: ErrorCode.AUTH_VERIFICATION_TOKEN_EXPIRED,
+};
+
+export function invalidTokenException(type: TokenType): AppException {
   return new AppException({
-    errorCode: ErrorCode.VALIDATION_ERROR, // TODO(PR2): ErrorCode.AUTH_TOKEN_INVALID
+    errorCode: INVALID_CODE_BY_TYPE[type],
     message: 'Token lookup failed: hash not found or type mismatch',
     statusCode: HttpStatus.BAD_REQUEST,
     publicMessage: 'El enlace no es válido. Por favor solicita uno nuevo.',
   });
 }
 
-export function expiredTokenException(): AppException {
+export function expiredTokenException(type: TokenType): AppException {
   return new AppException({
-    errorCode: ErrorCode.VALIDATION_ERROR, // TODO(PR2): ErrorCode.AUTH_TOKEN_EXPIRED
+    errorCode: EXPIRED_CODE_BY_TYPE[type],
     message: 'Token lookup failed: token expired',
     statusCode: HttpStatus.BAD_REQUEST,
     publicMessage: 'El enlace ha expirado. Por favor solicita uno nuevo.',
   });
 }
 
-export function consumedTokenException(): AppException {
+export function consumedTokenException(type: TokenType): AppException {
   return new AppException({
-    errorCode: ErrorCode.VALIDATION_ERROR, // TODO(PR2): ErrorCode.AUTH_TOKEN_CONSUMED
+    errorCode: INVALID_CODE_BY_TYPE[type],
     message: 'Token lookup failed: token already consumed',
     statusCode: HttpStatus.BAD_REQUEST,
     publicMessage: 'Este enlace ya fue utilizado. Por favor solicita uno nuevo.',

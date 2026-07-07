@@ -76,16 +76,16 @@ export class TokenService {
     const token = await this.tokenRepo.findOne({ where: { tokenHash } });
 
     if (!token || token.type !== type) {
-      throw invalidTokenException();
+      throw invalidTokenException(type);
     }
 
     if (token.expiresAt.getTime() < Date.now()) {
       await this.tokenRepo.delete({ id: token.id });
-      throw expiredTokenException();
+      throw expiredTokenException(type);
     }
 
     if (token.consumedAt) {
-      throw consumedTokenException();
+      throw consumedTokenException(type);
     }
 
     await this.tokenRepo.save({ ...token, consumedAt: new Date() });
