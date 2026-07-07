@@ -1,11 +1,13 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { LlmGenerationResult, LlmProviderPort, LlmTokenUsage } from '../ports/llm-provider.port';
-import { ModelTier, MODEL_TIER_FAST, MODEL_TIER_MID, MODEL_TIER_PRO } from '../config/model-tiers.config';
+import { ModelTier } from '../config/model-tiers.config';
 import { GeminiErrorKind } from '../utils/gemini-error-kind';
 import { classifyGeminiError } from '../utils/error-classifier';
-import { AppException } from '../../common/exceptions/app-exception';
-import { ErrorCode } from '../../common/enums/error-codes.enum';
+import { computeBackoff, sleep } from '../resilience/backoff.util';
+import { extractErrorDetail } from '../resilience/error-detail.util';
+import { buildAiProviderException } from '../resilience/exception.util';
+import { resolveModelName, resolveTimeout } from '../resilience/model-resolution.util';
 
 const CEREBRAS_BASE_URL = 'https://api.cerebras.ai/v1';
 
@@ -60,19 +62,19 @@ export class CerebrasAdapter implements LlmProviderPort {
   }
 
   async generateWithResilience(tier: ModelTier, prompt: string | any[]): Promise<LlmGenerationResult> {
-    const modelName = this.resolveModelName(tier);
-    const timeoutMs = this.resolveTimeout(tier);
+    const modelName = resolveModelName(tier, { fast: this.modelFast, mid: this.modelMid, slow: this.modelSlow });
+    const timeoutMs = resolveTimeout(tier, { fastMs: this.timeoutFastMs, slowMs: this.timeoutSlowMs });
 
     let lastKind: GeminiErrorKind = GeminiErrorKind.UNKNOWN;
     let attempt = 0;
 
     while (attempt <= this.retryMax) {
       if (attempt > 0) {
-        const backoff = this.computeBackoff(attempt);
+        const backoff = computeBackoff(attempt, this.retryBaseMs, this.retryCapMs);
         this.logger.warn(
           `Retrying cerebras call (attempt ${attempt}/${this.retryMax}) after ${backoff}ms — kind: ${lastKind}`,
         );
-        await this.sleep(backoff);
+        await sleep(backoff);
       }
 
       try {
@@ -82,7 +84,7 @@ export class CerebrasAdapter implements LlmProviderPort {
         const kind = this.classifyError(err);
         lastKind = kind;
 
-        const errDetail = this.extractErrorDetail(err);
+        const errDetail = extractErrorDetail(err);
         this.logger.error(
           `cerebras error on attempt ${attempt} — kind: ${kind}, model: ${modelName}, ` +
           `status: ${errDetail.status}, message: ${errDetail.message}`,
@@ -93,14 +95,14 @@ export class CerebrasAdapter implements LlmProviderPort {
 
         const RETRYABLE = new Set([GeminiErrorKind.RATE_LIMITED, GeminiErrorKind.UNAVAILABLE]);
         if (!RETRYABLE.has(kind) || attempt >= this.retryMax) {
-          throw this.toAppException(kind, attempt);
+          throw buildAiProviderException({ providerName: 'Cerebras', kind, attempt });
         }
 
         attempt++;
       }
     }
 
-    throw this.toAppException(lastKind, attempt);
+    throw buildAiProviderException({ providerName: 'Cerebras', kind: lastKind, attempt });
   }
 
   getName(): string {
@@ -112,18 +114,6 @@ export class CerebrasAdapter implements LlmProviderPort {
   }
 
   // ========== Private helpers ==========
-
-  private resolveModelName(tier: ModelTier): string {
-    if (tier === MODEL_TIER_FAST) return this.modelFast;
-    if (tier === MODEL_TIER_MID) return this.modelMid;
-    if (tier === MODEL_TIER_PRO) return this.modelSlow;
-    return this.modelFast;
-  }
-
-  private resolveTimeout(tier: ModelTier): number {
-    if (tier === MODEL_TIER_PRO) return this.timeoutSlowMs;
-    return this.timeoutFastMs;
-  }
 
   private async callWithTimeout(
     modelName: string,
@@ -208,82 +198,4 @@ export class CerebrasAdapter implements LlmProviderPort {
     }
     return classifyGeminiError(err);
   }
-
-  private toAppException(kind: GeminiErrorKind, attempt: number): AppException {
-    const messages: Record<GeminiErrorKind, { code: ErrorCode; message: string; publicMessage: string }> = {
-      [GeminiErrorKind.RATE_LIMITED]: {
-        code: ErrorCode.AI_RATE_LIMITED,
-        message: `cerebras rate limited after ${attempt} attempts. Please try again in a moment.`,
-        publicMessage: 'El servicio de IA no está disponible en este momento. Por favor, intentá de nuevo.',
-      },
-      [GeminiErrorKind.TIMEOUT]: {
-        code: ErrorCode.AI_TIMEOUT,
-        message: `cerebras request timed out after ${attempt} attempts.`,
-        publicMessage: 'El servicio de IA tardó demasiado. Por favor, intentá de nuevo.',
-      },
-      [GeminiErrorKind.UNAVAILABLE]: {
-        code: ErrorCode.AI_UNAVAILABLE,
-        message: `cerebras service temporarily unavailable after ${attempt} attempts.`,
-        publicMessage: 'El servicio de IA no está disponible en este momento. Por favor, intentá de nuevo.',
-      },
-      [GeminiErrorKind.POLICY_BLOCK]: {
-        code: ErrorCode.AI_SERVICE_ERROR,
-        message: `cerebras policy violation after ${attempt} attempts.`,
-        publicMessage: 'Error interno en el servicio de IA.',
-      },
-      [GeminiErrorKind.PARSE]: {
-        code: ErrorCode.AI_PARSE_FAILED,
-        message: `cerebras response format error after ${attempt} attempts.`,
-        publicMessage: 'El servicio de IA no pudo procesar la respuesta. Por favor, intentá de nuevo.',
-      },
-      [GeminiErrorKind.UNKNOWN]: {
-        code: ErrorCode.AI_SERVICE_ERROR,
-        message: `cerebras error after ${attempt} attempts.`,
-        publicMessage: 'Error interno en el servicio de IA.',
-      },
-    };
-
-    const { code, message, publicMessage } = messages[kind];
-    return new AppException({
-      errorCode: code,
-      message,
-      statusCode: 500,
-      publicMessage,
-    });
-  }
-
-  private computeBackoff(attempt: number): number {
-    const exponential = this.retryBaseMs * Math.pow(2, attempt - 1);
-    const jitter = Math.random() * exponential;
-    return Math.min(exponential + jitter, this.retryCapMs);
-  }
-
-  /**
-   * Extract structured detail from any error shape for rich logging.
-   * Handles: fetch HTTP errors, AbortError, plain Error instances.
-   */
-  private extractErrorDetail(err: unknown): { status: string; message: string; raw?: string } {
-    if (!err) return { status: 'N/A', message: 'null/undefined error' };
-
-    const e = err as any;
-    const status = e.status ?? e.statusCode ?? e.httpStatus ?? 'N/A';
-    const message = e.message ?? String(err);
-    // For fetch-based errors, the message already contains the body snippet
-    // (we set it in callWithTimeout), but also check for .body/.cause
-    let raw: string | undefined;
-    try {
-      const body = e.cause ?? e.body ?? e.response?.data;
-      if (body) {
-        raw = typeof body === 'string' ? body.substring(0, 500) : JSON.stringify(body).substring(0, 500);
-      }
-    } catch { /* ignore serialization errors */ }
-
-    return { status: String(status), message: message.substring(0, 300), raw };
-  }
-
-  private sleep(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
-  }
 }
-
-
