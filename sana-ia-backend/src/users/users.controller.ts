@@ -1,4 +1,5 @@
 import { Controller, Get, Post, Body, Patch, Param, Delete, UseGuards } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { UsersService } from './users.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
@@ -11,6 +12,9 @@ import { RoleEnum } from '../auth/enums/role.enum';
 export class UsersController {
   constructor(private readonly usersService: UsersService) { }
 
+  // PRODUCTION: anti-abuse tier for public registration (1h window, 10 req/IP)
+  // — see 'registration' tier in app.module.ts's ThrottlerModule.forRoot.
+  @Throttle({ registration: { ttl: 3_600_000, limit: 10 } })
   @Post()
   create(@Body() createUserDto: CreateUserDto) {
     return this.usersService.create(createUserDto);

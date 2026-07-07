@@ -1,14 +1,29 @@
-import { Controller, Post, Body, Get, Patch, UseGuards, Request } from '@nestjs/common';
+import { Controller, Post, Body, Get, Patch, UseGuards, Request, Query, Header } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
+import { ForgotPasswordDto } from './dto/forgot-password.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
+import { VerifyEmailDto } from './dto/verify-email.dto';
+import { ResendVerificationDto } from './dto/resend-verification.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { RolesGuard } from './guards/roles.guard';
 import { Roles } from './decorators/roles.decorator';
 import { RoleEnum } from './enums/role.enum';
 import { UsersService } from '../users/users.service';
 import { UpdateUserDto } from '../users/dto/update-user.dto';
+import { verifyEmailPage } from './pages/verify-email.page';
+import { resetPasswordPage } from './pages/reset-password.page';
 
 import { JwtRefreshGuard } from './guards/jwt-refresh.guard';
+
+/**
+ * Production limits for security-sensitive auth endpoints (forgot-password,
+ * resend-verification, reset-password, verify-email + their HTML landing
+ * pages): 15 min window, 5 req/IP. Matches the `auth-sensitive` tier
+ * registered in `app.module.ts`'s `ThrottlerModule.forRoot`.
+ */
+const AUTH_SENSITIVE_THROTTLE = { 'auth-sensitive': { ttl: 900_000, limit: 5 } };
 
 @Controller({ path: 'auth', version: '1' })
 export class AuthController {
@@ -80,5 +95,56 @@ export class AuthController {
             message: 'Este endpoint es solo para administradores',
             user: req.user,
         };
+    }
+
+    // ==================== Account Verification & Password Reset ====================
+    // Public endpoints (no auth guard). forgot-password and resend-verification
+    // ALWAYS return the same generic body regardless of whether the email
+    // belongs to a registered account (anti-enumeration — see AuthService).
+
+    @Throttle(AUTH_SENSITIVE_THROTTLE)
+    @Post('forgot-password')
+    async forgotPassword(@Body() dto: ForgotPasswordDto) {
+        await this.authService.forgotPassword(dto.email);
+        return { message: 'Si el correo existe, enviaremos instrucciones.' };
+    }
+
+    @Throttle(AUTH_SENSITIVE_THROTTLE)
+    @Post('reset-password')
+    async resetPassword(@Body() dto: ResetPasswordDto) {
+        await this.authService.resetPassword(dto.token, dto.newPassword);
+        return { message: 'Tu contraseña ha sido restablecida correctamente.' };
+    }
+
+    @Throttle(AUTH_SENSITIVE_THROTTLE)
+    @Post('verify-email')
+    async verifyEmail(@Body() dto: VerifyEmailDto) {
+        await this.authService.verifyEmail(dto.token);
+        return { message: 'Tu cuenta ha sido verificada correctamente.' };
+    }
+
+    @Throttle(AUTH_SENSITIVE_THROTTLE)
+    @Post('resend-verification')
+    async resendVerification(@Body() dto: ResendVerificationDto) {
+        await this.authService.resendVerification(dto.email);
+        return { message: 'Si el correo existe y requiere verificación, enviaremos un nuevo enlace.' };
+    }
+
+    // ==================== HTML Landing Pages ====================
+    // The frontend is a mobile app with no web routes; email links open these
+    // backend-served pages in the phone browser (see email templates).
+
+    @Throttle(AUTH_SENSITIVE_THROTTLE)
+    @Get('verify')
+    @Header('Content-Type', 'text/html')
+    getVerifyEmailPage(@Query('token') token: string) {
+        return verifyEmailPage(token ?? '');
+    }
+
+    @Throttle(AUTH_SENSITIVE_THROTTLE)
+    @Get('reset')
+    @Header('Content-Type', 'text/html')
+    getResetPasswordPage(@Query('token') token: string) {
+        return resetPasswordPage(token ?? '');
     }
 }
