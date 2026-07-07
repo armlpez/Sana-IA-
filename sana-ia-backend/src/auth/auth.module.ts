@@ -9,11 +9,16 @@ import { JwtRefreshStrategy } from './strategies/jwt-refresh.strategy';
 import { UsersModule } from '../users/users.module';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { RefreshToken } from './entities/refresh-token.entity';
+import { User } from '../users/entities/user.entity';
+import { TokensModule } from '../tokens/tokens.module';
+import { EmailModule } from '../email/email.module';
 
 @Module({
     imports: [
         UsersModule,
-        TypeOrmModule.forFeature([RefreshToken]),
+        TypeOrmModule.forFeature([RefreshToken, User]),
+        TokensModule,
+        EmailModule,
         PassportModule.register({ defaultStrategy: 'jwt' }),
         JwtModule.registerAsync({
             imports: [ConfigModule],
