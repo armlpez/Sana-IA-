@@ -1,4 +1,4 @@
-import { Controller, Post, Body, Get, Patch, UseGuards, Request, Query, Header } from '@nestjs/common';
+import { Controller, Post, Body, Get, Patch, UseGuards, Request, Query, Header, HttpCode, HttpStatus } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
@@ -104,6 +104,7 @@ export class AuthController {
 
     @Throttle(AUTH_SENSITIVE_THROTTLE)
     @Post('forgot-password')
+    @HttpCode(HttpStatus.OK)
     async forgotPassword(@Body() dto: ForgotPasswordDto) {
         await this.authService.forgotPassword(dto.email);
         return { message: 'Si el correo existe, enviaremos instrucciones.' };
@@ -111,6 +112,7 @@ export class AuthController {
 
     @Throttle(AUTH_SENSITIVE_THROTTLE)
     @Post('reset-password')
+    @HttpCode(HttpStatus.OK)
     async resetPassword(@Body() dto: ResetPasswordDto) {
         await this.authService.resetPassword(dto.token, dto.newPassword);
         return { message: 'Tu contraseña ha sido restablecida correctamente.' };
@@ -118,6 +120,7 @@ export class AuthController {
 
     @Throttle(AUTH_SENSITIVE_THROTTLE)
     @Post('verify-email')
+    @HttpCode(HttpStatus.OK)
     async verifyEmail(@Body() dto: VerifyEmailDto) {
         await this.authService.verifyEmail(dto.token);
         return { message: 'Tu cuenta ha sido verificada correctamente.' };
@@ -125,6 +128,7 @@ export class AuthController {
 
     @Throttle(AUTH_SENSITIVE_THROTTLE)
     @Post('resend-verification')
+    @HttpCode(HttpStatus.OK)
     async resendVerification(@Body() dto: ResendVerificationDto) {
         await this.authService.resendVerification(dto.email);
         return { message: 'Si el correo existe y requiere verificación, enviaremos un nuevo enlace.' };
