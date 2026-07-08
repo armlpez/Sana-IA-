@@ -17,20 +17,20 @@ export function verificationEmailTemplate(
   const link = `${frontendUrl}/v1/auth/verify?token=${rawToken}`;
 
   return {
-    subject: 'Verificá tu cuenta en Sana IA',
+    subject: 'Verifica tu cuenta en Sana IA',
     html: `
       <p>Hola,</p>
-      <p>Gracias por registrarte en Sana IA. Para verificar tu cuenta, hacé clic en el siguiente enlace:</p>
+      <p>Gracias por registrarte en Sana IA. Para verificar tu cuenta, haz clic en el siguiente enlace:</p>
       <p><a href="${link}">${link}</a></p>
-      <p>Este enlace expira en 24 horas. Si no creaste esta cuenta, podés ignorar este correo.</p>
+      <p>Este enlace expira en 24 horas. Si no creaste esta cuenta, puedes ignorar este correo.</p>
     `.trim(),
     text: [
       'Hola,',
       '',
-      'Gracias por registrarte en Sana IA. Para verificar tu cuenta, visitá el siguiente enlace:',
+      'Gracias por registrarte en Sana IA. Para verificar tu cuenta, visita el siguiente enlace:',
       link,
       '',
-      'Este enlace expira en 24 horas. Si no creaste esta cuenta, podés ignorar este correo.',
+      'Este enlace expira en 24 horas. Si no creaste esta cuenta, puedes ignorar este correo.',
     ].join('\n'),
   };
 }

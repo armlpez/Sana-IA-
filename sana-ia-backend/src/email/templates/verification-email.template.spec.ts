@@ -19,7 +19,7 @@ describe('verificationEmailTemplate', () => {
       'raw-token-123',
     );
 
-    expect(content.subject).toMatch(/Verificá/);
+    expect(content.subject).toMatch(/Verifica/);
     expect(content.text).toMatch(/24 horas/);
     expect(content).not.toHaveProperty('to');
   });
