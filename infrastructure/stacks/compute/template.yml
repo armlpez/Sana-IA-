@@ -38,6 +38,29 @@ Parameters:
     Type: String
   BedrockMantleApiKeySecretArn:
     Type: String
+  SmtpPasswordSecretArn:
+    Type: String
+  EmailType:
+    Type: String
+    Default: log
+    AllowedValues:
+      - log
+      - smtp
+    Description: "'log' prints verification/reset links to the app's stdout (dev default, no real email sent). 'smtp' sends via SmtpHost/SmtpUser/SmtpPasswordSecretArn."
+  SmtpHost:
+    Type: String
+    Default: smtp.gmail.com
+  SmtpPort:
+    Type: String
+    Default: "587"
+  SmtpUser:
+    Type: String
+    Default: ""
+    Description: "SMTP username (e.g. a Gmail address for dev/testing). Leave blank while EmailType=log."
+  FrontendUrl:
+    Type: String
+    Default: ""
+    Description: "Base URL embedded in verification/reset email links. The backend serves these landing pages itself (mobile-only frontend) — set this to http://<BackendEip>:3000 once the stack's static EIP is known (see the FrontendUrl comment in samconfig.toml)."
   DbEndpointAddress:
     Type: String
   DbEndpointPort:
@@ -139,6 +162,7 @@ Resources:
           GROQ_API_KEY=$(get_secret "${GroqApiKeySecretArn}")
           CEREBRAS_API_KEY=$(get_secret "${CerebrasApiKeySecretArn}")
           BEDROCK_MANTLE_API_KEY=$(get_secret "${BedrockMantleApiKeySecretArn}")
+          SMTP_PASSWORD=$(get_secret "${SmtpPasswordSecretArn}")
 
           AUTH_REPO_URL=$(echo "$REPO_URL" | sed "s#https://#https://x-access-token:$GITHUB_TOKEN@#")
 
@@ -202,6 +226,12 @@ Resources:
           STORAGE_TYPE=${StorageType}
           S3_BUCKET=${LabsBucketName}
           AWS_REGION=$REGION
+          EMAIL_TYPE=${EmailType}
+          SMTP_HOST=${SmtpHost}
+          SMTP_PORT=${SmtpPort}
+          SMTP_USER=${SmtpUser}
+          SMTP_PASS=$SMTP_PASSWORD
+          FRONTEND_URL=${FrontendUrl}
           ENVEOF
           chmod 600 "$APP_DIR/sana-ia-backend/.env"
 

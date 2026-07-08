@@ -80,6 +80,32 @@ Parameters:
     NoEcho: true
     Default: "REPLACE_ME_AFTER_DEPLOY"
     Description: Bedrock Mantle API key — Bearer token, LLM primary provider (set in samconfig)
+  SmtpPassword:
+    Type: String
+    NoEcho: true
+    Default: "REPLACE_ME_AFTER_DEPLOY"
+    Description: SMTP password for outbound email — account verification / password reset (set in samconfig)
+  EmailType:
+    Type: String
+    Default: log
+    AllowedValues:
+      - log
+      - smtp
+    Description: "'log' prints links to stdout (dev default). 'smtp' sends real email via SmtpHost/SmtpUser/SmtpPassword."
+  SmtpHost:
+    Type: String
+    Default: smtp.gmail.com
+  SmtpPort:
+    Type: String
+    Default: "587"
+  SmtpUser:
+    Type: String
+    Default: ""
+    Description: SMTP username (e.g. a Gmail address). Leave blank while EmailType=log.
+  FrontendUrl:
+    Type: String
+    Default: ""
+    Description: Base URL embedded in verification/reset email links — set to http://<BackendEip>:3000 (see samconfig.toml comment)
 
 Resources:
   SanaNetwork:
@@ -101,6 +127,7 @@ Resources:
         GroqApiKey: !Ref GroqApiKey
         CerebrasApiKey: !Ref CerebrasApiKey
         BedrockMantleApiKey: !Ref BedrockMantleApiKey
+        SmtpPassword: !Ref SmtpPassword
 
   SanaStorage:
     Type: AWS::Serverless::Application
@@ -123,6 +150,7 @@ Resources:
         GroqApiKeySecretArn: !GetAtt SanaSecrets.Outputs.GroqApiKeySecretArn
         CerebrasApiKeySecretArn: !GetAtt SanaSecrets.Outputs.CerebrasApiKeySecretArn
         BedrockMantleApiKeySecretArn: !GetAtt SanaSecrets.Outputs.BedrockMantleApiKeySecretArn
+        SmtpPasswordSecretArn: !GetAtt SanaSecrets.Outputs.SmtpPasswordSecretArn
         LabsBucketArn: !GetAtt SanaStorage.Outputs.BucketArn
 
   SanaDatabase:
@@ -157,6 +185,12 @@ Resources:
         GroqApiKeySecretArn: !GetAtt SanaSecrets.Outputs.GroqApiKeySecretArn
         CerebrasApiKeySecretArn: !GetAtt SanaSecrets.Outputs.CerebrasApiKeySecretArn
         BedrockMantleApiKeySecretArn: !GetAtt SanaSecrets.Outputs.BedrockMantleApiKeySecretArn
+        SmtpPasswordSecretArn: !GetAtt SanaSecrets.Outputs.SmtpPasswordSecretArn
+        EmailType: !Ref EmailType
+        SmtpHost: !Ref SmtpHost
+        SmtpPort: !Ref SmtpPort
+        SmtpUser: !Ref SmtpUser
+        FrontendUrl: !Ref FrontendUrl
         DbEndpointAddress: !GetAtt SanaDatabase.Outputs.DbEndpointAddress
         DbEndpointPort: !GetAtt SanaDatabase.Outputs.DbEndpointPort
         DBName: !Ref DBName

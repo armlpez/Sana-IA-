@@ -21,6 +21,8 @@ Parameters:
     Type: String
   BedrockMantleApiKeySecretArn:
     Type: String
+  SmtpPasswordSecretArn:
+    Type: String
   LabsBucketArn:
     Type: String
 
@@ -55,6 +57,7 @@ Resources:
                   - !Ref GroqApiKeySecretArn
                   - !Ref CerebrasApiKeySecretArn
                   - !Ref BedrockMantleApiKeySecretArn
+                  - !Ref SmtpPasswordSecretArn
         - PolicyName: SanaS3LabsAccess
           PolicyDocument:
             Version: "2012-10-17"
