@@ -22,7 +22,7 @@ describe('auth pages (self-contained HTML helpers)', () => {
     it('renders the QuvixSoft brand logo with a graceful alt-text fallback', () => {
       const html = verifyEmailPage('other-token-value');
 
-      expect(html).toContain('https://quvixsoft.com/assets/LOGO_PNG-SIN%20FONDO.png');
+      expect(html).toContain('src="/assets/logo.png"');
       expect(html).toContain('alt="QuvixSoft"');
     });
 
@@ -56,7 +56,7 @@ describe('auth pages (self-contained HTML helpers)', () => {
       const html = resetPasswordPage('reset-token-xyz');
 
       expect(html).toContain('https://fonts.googleapis.com/css2?family=Inter');
-      expect(html).toContain('https://quvixsoft.com/assets/LOGO_PNG-SIN%20FONDO.png');
+      expect(html).toContain('src="/assets/logo.png"');
       expect(html).toContain('#00D4FF');
       expect(html).toContain('#0056B3');
     });

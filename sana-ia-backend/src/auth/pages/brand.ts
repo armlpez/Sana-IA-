@@ -78,5 +78,8 @@ export const BRAND_HEAD = `<link rel="preconnect" href="https://fonts.googleapis
   .error { color: #c0362c; font-weight: 600; text-align: center; margin-top: 12px; }
 </style>`;
 
+// Served locally from ./public/assets (see main.ts's useStaticAssets) instead
+// of hotlinking quvixsoft.com — that external dependency broke the logo for
+// at least one user when the third-party site had a transient failure.
 export const BRAND_LOGO =
-  '<img class="logo" src="https://quvixsoft.com/assets/LOGO_PNG-SIN%20FONDO.png" alt="QuvixSoft" style="max-width:180px">';
+  '<img class="logo" src="/assets/logo.png" alt="QuvixSoft" style="max-width:180px">';
