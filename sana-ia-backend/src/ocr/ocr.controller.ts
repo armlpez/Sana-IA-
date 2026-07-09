@@ -15,6 +15,7 @@ import {
     HttpStatus,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { SkipThrottle } from '@nestjs/throttler';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { memoryStorage } from 'multer';
 import { ErrorResponseBuilder } from '../common/utils/error-response.builder';
@@ -30,6 +31,9 @@ import { STORAGE_PORT } from '../storage/storage.port';
 import type { StoragePort } from '../storage/storage.port';
 
 @UseGuards(JwtAuthGuard)
+// See ai.controller.ts for why this skip is needed: 'auth-sensitive'/
+// 'registration' would otherwise silently rate-limit normal OCR uploads.
+@SkipThrottle({ 'auth-sensitive': true, registration: true })
 @Controller('v1/ocr')
 export class OcrController {
     private readonly logger = new Logger(OcrController.name);

@@ -10,7 +10,7 @@ import {
     HttpStatus,
     Request,
 } from '@nestjs/common';
-import { Throttle } from '@nestjs/throttler';
+import { Throttle, SkipThrottle } from '@nestjs/throttler';
 import { AiService } from './ai.service';
 import { ChatService } from './chat.service';
 import { AnalyzeInputDto } from './dto/analyze-input.dto';
@@ -19,6 +19,11 @@ import { ChatInputDto } from '../consultations/dto/chat-input.dto';
 import { ChatResponseDto } from '../consultations/dto/chat-response.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
+// 'auth-sensitive'/'registration' are anti-abuse tiers scoped to specific auth
+// endpoints — @nestjs/throttler applies every forRoot() tier to all routes by
+// default, so without this skip, normal chat usage (>5 msgs/15min) silently
+// trips the password-reset rate limit and returns 429 on real consultations.
+@SkipThrottle({ 'auth-sensitive': true, registration: true })
 @Controller({ path: 'ai', version: '1' })
 @UseGuards(JwtAuthGuard)
 export class AiController {

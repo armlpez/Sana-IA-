@@ -1,8 +1,12 @@
 import { Controller, Get, Post, Body, Patch, Param, Delete } from '@nestjs/common';
+import { SkipThrottle } from '@nestjs/throttler';
 import { RolesService } from './roles.service';
 import { CreateRoleDto } from './dto/create-role.dto';
 import { UpdateRoleDto } from './dto/update-role.dto';
 
+// See ai.controller.ts for why this skip is needed: 'auth-sensitive'/
+// 'registration' would otherwise silently rate-limit normal role management.
+@SkipThrottle({ 'auth-sensitive': true, registration: true })
 @Controller({ path: 'roles', version: '1' })
 export class RolesController {
   constructor(private readonly rolesService: RolesService) { }

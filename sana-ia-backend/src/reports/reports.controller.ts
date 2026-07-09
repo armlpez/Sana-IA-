@@ -8,9 +8,13 @@ import {
     UseGuards,
 } from '@nestjs/common';
 import type { Response } from 'express';
+import { SkipThrottle } from '@nestjs/throttler';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { ReportsService } from './reports.service';
 
+// See ai.controller.ts for why this skip is needed: 'auth-sensitive'/
+// 'registration' would otherwise silently rate-limit normal report downloads.
+@SkipThrottle({ 'auth-sensitive': true, registration: true })
 @UseGuards(JwtAuthGuard)
 @Controller({ path: 'consultations', version: '1' })
 export class ReportsController {
