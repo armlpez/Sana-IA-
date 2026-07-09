@@ -2,6 +2,8 @@ import { Module } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { OcrResult } from './entities/ocr-result.entity';
+import { Consultation } from '../consultations/entities/consultation.entity';
+import { ChatMessage } from '../chat-messages/entities/chat-message.entity';
 import { OcrController } from './ocr.controller';
 import { OcrProducer } from './ocr.producer';
 import { OcrWorker } from './ocr.worker';
@@ -11,7 +13,7 @@ import { OCR_QUEUE_NAME } from './ocr.job';
 
 @Module({
     imports: [
-        TypeOrmModule.forFeature([OcrResult]),
+        TypeOrmModule.forFeature([OcrResult, Consultation, ChatMessage]),
         BullModule.registerQueue({
             name: OCR_QUEUE_NAME,
             defaultJobOptions: {

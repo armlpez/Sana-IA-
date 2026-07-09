@@ -55,6 +55,16 @@ export class Consultation {
     @Column({ type: 'boolean', default: false, nullable: true })
     emergencyDetected: boolean;
 
+    /**
+     * Temas clínicos ya indagados (valores de CONVERSATION_TOPICS).
+     * El código lo acumula por turno a partir del `topicAsked` que reporta el LLM.
+     * Gobierna el cierre y evita repetir preguntas (anti-repetición determinística).
+     * Un turno sin tema nuevo (topicAsked=null, ej. error del paciente) NO lo modifica.
+     * Ver docs/IMPLEMENTACION-ANTI-REPETICION-CONSULTA.md.
+     */
+    @Column({ type: 'jsonb', default: () => "'[]'" })
+    askedTopics: string[];
+
     @OneToMany(() => ChatMessage, (message) => message.consultation, {
         cascade: true,
     })

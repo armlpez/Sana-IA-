@@ -43,6 +43,9 @@ export class ChatMessage {
         promptTokens?: number;
         completionTokens?: number;
         responseTimeMs?: number;
+        // True for the fixed safety message re-served on a consultation already
+        // locked by a prior emergency signal (see ChatService.sendMessage step 2.5).
+        locked?: boolean;
         // Operational diagnostics for the fallback path. Persisted so the reason a
         // consultation shows "servicio no disponible" is queryable from the DB,
         // without needing to grep server logs. Contains NO patient content (PHI).

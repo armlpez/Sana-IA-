@@ -9,4 +9,10 @@ export class ChatResponseDto {
         duration: string | null;
     };
     diagnosis?: Record<string, any> | null;
+    /**
+     * True when this consultation is locked by an emergency signal (this turn
+     * or a prior one). Clients MUST use this field to decide whether to hide
+     * the chat input — never infer it by matching `message` text.
+     */
+    isEmergency: boolean;
 }

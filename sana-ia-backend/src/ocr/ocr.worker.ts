@@ -6,6 +6,10 @@ import { Job } from 'bullmq';
 import { OCR_QUEUE_NAME, OcrJobPayload } from './ocr.job';
 import { OcrResult } from './entities/ocr-result.entity';
 import { OcrJobStatus } from './enums/ocr-job-status.enum';
+import { Consultation } from '../consultations/entities/consultation.entity';
+import { ChatMessage } from '../chat-messages/entities/chat-message.entity';
+import { MessageRole } from '../chat-messages/enums/message-role.enum';
+import { EMERGENCY_RESPONSE_MESSAGE } from '../consultations/constants/emergency-response.constant';
 import { ResilientLlmService } from '../ai/services/resilient-llm.service';
 import { STORAGE_PORT } from '../storage/storage.port';
 import type { StoragePort } from '../storage/storage.port';
@@ -36,6 +40,10 @@ export class OcrWorker extends WorkerHost {
     constructor(
         @InjectRepository(OcrResult)
         private readonly ocrResultRepo: Repository<OcrResult>,
+        @InjectRepository(Consultation)
+        private readonly consultationRepo: Repository<Consultation>,
+        @InjectRepository(ChatMessage)
+        private readonly chatMessageRepo: Repository<ChatMessage>,
         private readonly resilientLlm: ResilientLlmService,
         @Inject(STORAGE_PORT) private readonly storage: StoragePort,
     ) {
@@ -103,6 +111,35 @@ export class OcrWorker extends WorkerHost {
             this.logger.log(
                 `OCR job completed — ocrResultId: ${ocrResultId}, biomarkers: ${extractedData?.biomarkers?.length ?? 0}, elapsedMs: ${processingTimeMs}`,
             );
+
+            // 8. Emergency escalation: if any biomarker came back flagged "critico",
+            // lock the consultation and serve the fixed safety message — same
+            // mechanism and exact text as the chat-triggered emergency path (see
+            // EMERGENCY_RESPONSE_MESSAGE / ChatService.sendMessage step 2.5). OCR is
+            // async with no live channel to the patient, so the message is delivered
+            // as a regular ChatMessage, seen the next time they open the conversation.
+            const hasCriticalBiomarker = (extractedData?.biomarkers as { flag?: string }[] | undefined)
+                ?.some((b) => b.flag === 'critico') ?? false;
+
+            if (hasCriticalBiomarker && ocrResult.consultationId) {
+                const consultation = await this.consultationRepo.findOne({
+                    where: { id: ocrResult.consultationId },
+                });
+                if (consultation && !consultation.emergencyDetected) {
+                    await this.consultationRepo.update(consultation.id, { emergencyDetected: true });
+                    await this.chatMessageRepo.save(
+                        this.chatMessageRepo.create({
+                            consultationId: consultation.id,
+                            role: MessageRole.ASSISTANT,
+                            content: EMERGENCY_RESPONSE_MESSAGE,
+                            metadata: { locked: true },
+                        }),
+                    );
+                    this.logger.warn(
+                        `OCR detected critical biomarker(s) — consultation ${consultation.id} locked (ocrResultId: ${ocrResultId})`,
+                    );
+                }
+            }
         } catch (err: unknown) {
             // Explicit error handling with detailed logging
             const processingTimeMs = Date.now() - startTime;
