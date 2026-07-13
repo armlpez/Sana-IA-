@@ -108,8 +108,10 @@ export class OcrWorker extends WorkerHost {
                 },
             });
 
+            // hasExtractionNotes is a sanitized boolean — the note's CONTENT stays in
+            // extractedData (Postgres, the durable PHI record) and is never logged.
             this.logger.log(
-                `OCR job completed — ocrResultId: ${ocrResultId}, biomarkers: ${extractedData?.biomarkers?.length ?? 0}, elapsedMs: ${processingTimeMs}`,
+                `OCR job completed — ocrResultId: ${ocrResultId}, biomarkers: ${extractedData?.biomarkers?.length ?? 0}, hasExtractionNotes: ${Boolean(extractedData?.extractionNotes)}, elapsedMs: ${processingTimeMs}`,
             );
 
             // 8. Emergency escalation: if any biomarker came back flagged "critico",
@@ -219,30 +221,36 @@ export class OcrWorker extends WorkerHost {
      * Instructs the model to return structured JSON with detected lab values.
      */
     private buildOcrPrompt(base64Image: string, mimeType: string): Part[] {
-        const textPrompt = `Eres un sistema de extracción de datos de laboratorio clínico. 
-Analiza la siguiente imagen de un examen de laboratorio y extrae TODOS los biomarcadores visibles.
+        const textPrompt = `Eres un sistema de extracción de datos de laboratorio clínico.
+Analiza la siguiente imagen de un examen de laboratorio y extrae TODOS los resultados visibles.
 
 Devuelve EXCLUSIVAMENTE un JSON válido con esta estructura:
 {
   "biomarkers": [
     {
       "name": "Nombre del biomarcador",
-      "value": "valor numérico detectado",
-      "unit": "unidad de medida (mg/dL, mEq/L, etc.)",
-      "referenceRange": "rango de referencia si es visible",
-      "flag": "normal | alto | bajo | critico"
+      "value": "resultado tal como aparece en el examen (numérico o textual)",
+      "unit": "unidad de medida si aplica (mg/dL, mEq/L, etc.), o null si el resultado no tiene unidad",
+      "referenceRange": "rango o valor de referencia si es visible",
+      "flag": "normal | alto | bajo | anormal | critico — o null si no es determinable"
     }
   ],
-  "labType": "tipo de examen (química sanguínea, hematología, etc.)",
+  "labType": "tipo de examen (química sanguínea, hematología, uroanálisis, cultivo, etc.)",
   "labDate": "fecha del examen si es visible (ISO 8601)",
-  "confidence": 0.0 a 1.0
+  "confidence": 0.0 a 1.0,
+  "extractionNotes": "null si la extracción fue completa. Si extrajiste pocos o cero resultados, o partes del documento no se pudieron leer, explica aquí BREVEMENTE el motivo (imagen borrosa, documento cortado, texto ilegible, reflejo, etc.)"
 }
 
 REGLAS:
-- Extrae TODOS los valores visibles, no solo los anormales.
+- Un biomarcador es CUALQUIER resultado reportado en el examen, sea numérico
+  (ej. 14.5 g/dL) o cualitativo/textual (ej. "Negativo", "Trazas", un color, una
+  descripción de cultivo). NUNCA descartes un resultado por no ser numérico:
+  uroanálisis, coprológicos, cultivos y serologías son mayormente cualitativos
+  y sus resultados deben extraerse igual que los numéricos.
+- Extrae TODOS los resultados visibles, no solo los anormales.
 - Las unidades de medida deben ser exactas (mg/dL, mEq/L, g/dL, etc.).
-- Si no puedes leer un valor con certeza, omítelo en lugar de adivinar.
-- Si la imagen no es un examen de laboratorio, devuelve: { "biomarkers": [], "confidence": 0, "error": "No se detectó un examen de laboratorio" }
+- Si no puedes leer un valor con certeza, omítelo y menciona en "extractionNotes" que hubo valores ilegibles.
+- Si la imagen no es un examen de laboratorio, devuelve: { "biomarkers": [], "confidence": 0, "error": "No se detectó un examen de laboratorio", "extractionNotes": "describe qué contiene la imagen en su lugar" }
 - NO inventes valores. Solo reporta lo que es VISIBLE en la imagen.`;
 
         return [
