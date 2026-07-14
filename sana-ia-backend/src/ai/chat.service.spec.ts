@@ -11,6 +11,21 @@ function llmResult(text: string) {
     return { text, usage: ZERO_USAGE, model: 'test-model', provider: 'gemini' };
 }
 
+/**
+ * Inert mocks for the deletion-path constructor deps (ocrResultRepo, dataSource,
+ * storage). The chat suites never touch them; the deleteConversations suite
+ * builds its own richer versions.
+ */
+function deletionDeps() {
+    return {
+        ocrResultRepo: { find: jest.fn().mockResolvedValue([]) } as any,
+        dataSource: {
+            transaction: jest.fn(async (cb: any) => cb({ delete: jest.fn() })),
+        } as any,
+        storage: { remove: jest.fn().mockResolvedValue(undefined) } as any,
+    };
+}
+
 describe('ChatService — Emergency Latch', () => {
     let chatService: ChatService;
     let consultationRepo: Repository<Consultation>;
@@ -40,11 +55,15 @@ describe('ChatService — Emergency Latch', () => {
             save: jest.fn(),
         } as any;
 
+        const deps = deletionDeps();
         chatService = new ChatService(
             consultationRepo,
             chatMessageRepo,
             resilientLlmService,
             diagnosisRepo,
+            deps.ocrResultRepo,
+            deps.dataSource,
+            deps.storage,
         );
     });
 
@@ -253,11 +272,15 @@ describe('ChatService — Anti-Repetition Progress (askedTopics)', () => {
             save: jest.fn(),
         } as any;
 
+        const deps = deletionDeps();
         chatService = new ChatService(
             consultationRepo,
             chatMessageRepo,
             resilientLlmService,
             diagnosisRepo,
+            deps.ocrResultRepo,
+            deps.dataSource,
+            deps.storage,
         );
     });
 
@@ -455,11 +478,15 @@ describe('ChatService — Emergency Escalation & Lock', () => {
             save: jest.fn(),
         } as any;
 
+        const deps = deletionDeps();
         chatService = new ChatService(
             consultationRepo,
             chatMessageRepo,
             resilientLlmService,
             diagnosisRepo,
+            deps.ocrResultRepo,
+            deps.dataSource,
+            deps.storage,
         );
     });
 
@@ -557,5 +584,102 @@ describe('ChatService — Emergency Escalation & Lock', () => {
         for (const [, payload] of updateCalls) {
             expect(payload).not.toHaveProperty('emergencyDetected', true);
         }
+    });
+});
+
+describe('ChatService — deleteConversations', () => {
+    let chatService: ChatService;
+    let consultationRepo: any;
+    let ocrResultRepo: any;
+    let dataSource: any;
+    let storage: any;
+    let txManager: { delete: jest.Mock };
+
+    beforeEach(() => {
+        consultationRepo = {
+            find: jest.fn(),
+        };
+
+        ocrResultRepo = {
+            find: jest.fn().mockResolvedValue([]),
+        };
+
+        txManager = { delete: jest.fn().mockResolvedValue({ affected: 1 }) };
+        dataSource = {
+            transaction: jest.fn(async (cb: any) => cb(txManager)),
+        };
+
+        storage = { remove: jest.fn().mockResolvedValue(undefined) };
+
+        chatService = new ChatService(
+            consultationRepo,
+            {} as any, // chatMessageRepo — deletion path only touches it via the tx manager
+            {} as any, // resilientLlm — never called on deletion
+            {} as any, // diagnosisRepo — deletion path only touches it via the tx manager
+            ocrResultRepo,
+            dataSource,
+            storage,
+        );
+    });
+
+    it('deletes owned conversations and their children inside one transaction', async () => {
+        consultationRepo.find.mockResolvedValue([{ id: 1 }, { id: 2 }]);
+
+        const result = await chatService.deleteConversations([1, 2], 100);
+
+        expect(result).toEqual({ deletedIds: [1, 2], notFoundIds: [] });
+        // Ownership is enforced in the lookup, never assumed from the input.
+        expect(consultationRepo.find).toHaveBeenCalledWith(
+            expect.objectContaining({ where: expect.objectContaining({ userId: 100 }) }),
+        );
+        expect(dataSource.transaction).toHaveBeenCalledTimes(1);
+        // Children first, consultation last — 4 explicit deletes, no FK-cascade reliance.
+        expect(txManager.delete).toHaveBeenCalledTimes(4);
+    });
+
+    it('reports foreign/nonexistent ids in notFoundIds without opening a transaction', async () => {
+        consultationRepo.find.mockResolvedValue([]);
+
+        const result = await chatService.deleteConversations([7, 8], 100);
+
+        expect(result).toEqual({ deletedIds: [], notFoundIds: [7, 8] });
+        expect(dataSource.transaction).not.toHaveBeenCalled();
+        expect(storage.remove).not.toHaveBeenCalled();
+    });
+
+    it('handles a mix of owned and foreign ids: deletes the owned, reports the rest', async () => {
+        consultationRepo.find.mockResolvedValue([{ id: 1 }]);
+
+        const result = await chatService.deleteConversations([1, 99], 100);
+
+        expect(result).toEqual({ deletedIds: [1], notFoundIds: [99] });
+        expect(dataSource.transaction).toHaveBeenCalledTimes(1);
+    });
+
+    it('removes pending lab images from storage after commit, tolerating failures', async () => {
+        consultationRepo.find.mockResolvedValue([{ id: 1 }]);
+        ocrResultRepo.find.mockResolvedValue([
+            { id: 'a', imagePath: 'labs/a.jpg' },
+            { id: 'b', imagePath: 'labs/b.jpg' },
+        ]);
+        // First file already gone (worker cleanup) — must not break the response.
+        storage.remove
+            .mockRejectedValueOnce(new Error('ENOENT'))
+            .mockResolvedValueOnce(undefined);
+
+        const result = await chatService.deleteConversations([1], 100);
+
+        expect(result).toEqual({ deletedIds: [1], notFoundIds: [] });
+        expect(storage.remove).toHaveBeenCalledTimes(2);
+        expect(storage.remove).toHaveBeenCalledWith('labs/a.jpg');
+        expect(storage.remove).toHaveBeenCalledWith('labs/b.jpg');
+    });
+
+    it('deduplicates repeated ids in the input', async () => {
+        consultationRepo.find.mockResolvedValue([{ id: 5 }]);
+
+        const result = await chatService.deleteConversations([5, 5, 5], 100);
+
+        expect(result).toEqual({ deletedIds: [5], notFoundIds: [] });
     });
 });

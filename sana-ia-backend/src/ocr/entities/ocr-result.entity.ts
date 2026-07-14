@@ -32,7 +32,7 @@ export class OcrResult {
     @Column({ nullable: true })
     consultationId?: number;
 
-    @ManyToOne(() => Consultation, (consultation) => consultation.ocrResults, { nullable: true, onDelete: 'SET NULL' })
+    @ManyToOne(() => Consultation, (consultation) => consultation.ocrResults, { nullable: true, onDelete: 'CASCADE' })
     @JoinColumn({ name: 'consultationId' })
     consultation: Consultation;
 

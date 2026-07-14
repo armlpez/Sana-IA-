@@ -1,8 +1,11 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
+import { DataSource, In, Repository } from 'typeorm';
 import { Consultation } from '../consultations/entities/consultation.entity';
 import { Diagnosis } from '../consultations/entities/diagnosis.entity';
+import { OcrResult } from '../ocr/entities/ocr-result.entity';
+import { STORAGE_PORT } from '../storage/storage.port';
+import type { StoragePort } from '../storage/storage.port';
 import { ConsultationStatus } from '../consultations/enums/consultation-status.enum';
 import { ChatMessage } from '../chat-messages/entities/chat-message.entity';
 import { MessageRole } from '../chat-messages/enums/message-role.enum';
@@ -33,6 +36,12 @@ export class ChatService {
         private readonly resilientLlm: ResilientLlmService,
         @InjectRepository(Diagnosis)
         private readonly diagnosisRepo: Repository<Diagnosis>,
+        @InjectRepository(OcrResult)
+        private readonly ocrResultRepo: Repository<OcrResult>,
+        @InjectDataSource()
+        private readonly dataSource: DataSource,
+        @Inject(STORAGE_PORT)
+        private readonly storage: StoragePort,
     ) {}
 
     async sendMessage(userId: number, dto: ChatInputDto): Promise<ChatResponseDto> {
@@ -247,6 +256,70 @@ export class ChatService {
             order: { updatedAt: 'DESC' },
             select: ['id', 'title', 'summary', 'status', 'createdAt', 'updatedAt'],
         });
+    }
+
+    /**
+     * Bulk hard-delete of consultations owned by the user.
+     *
+     * Ids that don't exist OR belong to another user are reported together in
+     * `notFoundIds` — the response never distinguishes the two cases, so it
+     * can't be used to probe which consultation ids exist.
+     *
+     * Child rows (chat messages, diagnoses, OCR results) are deleted explicitly
+     * inside one transaction instead of relying on FK cascades: the ocr_result
+     * FK was created as ON DELETE NO ACTION (see FixOcrResultConsultationFkCascade
+     * migration) and the base tables have no migration-backed cascade guarantees.
+     */
+    async deleteConversations(
+        ids: number[],
+        userId: number,
+    ): Promise<{ deletedIds: number[]; notFoundIds: number[] }> {
+        const uniqueIds = [...new Set(ids)];
+
+        const owned = await this.consultationRepo.find({
+            where: { id: In(uniqueIds), userId },
+            select: ['id'],
+        });
+        const ownedIds = owned.map((c) => c.id);
+        const notFoundIds = uniqueIds.filter((id) => !ownedIds.includes(id));
+
+        if (ownedIds.length === 0) {
+            return { deletedIds: [], notFoundIds };
+        }
+
+        // Snapshot storage keys BEFORE the rows disappear. Most files are already
+        // gone (the OCR worker removes them after processing), but queued/processing
+        // jobs may still have one on disk/S3.
+        const ocrRows = await this.ocrResultRepo.find({
+            where: { consultationId: In(ownedIds) },
+            select: ['id', 'imagePath'],
+        });
+
+        await this.dataSource.transaction(async (manager) => {
+            await manager.delete(ChatMessage, { consultationId: In(ownedIds) });
+            await manager.delete(Diagnosis, { consultationId: In(ownedIds) });
+            await manager.delete(OcrResult, { consultationId: In(ownedIds) });
+            await manager.delete(Consultation, { id: In(ownedIds) });
+        });
+
+        // Best-effort file cleanup AFTER commit — a storage failure must not
+        // undo or fail a deletion the database already confirmed.
+        for (const row of ocrRows) {
+            if (!row.imagePath) continue;
+            try {
+                await this.storage.remove(row.imagePath);
+            } catch (cleanupErr) {
+                this.logger.warn(
+                    `Storage cleanup failed for deleted ocr_result ${row.id}: ${cleanupErr}`,
+                );
+            }
+        }
+
+        this.logger.log(
+            `Conversations deleted — user: ${userId}, deleted: [${ownedIds.join(', ')}], notFound: ${notFoundIds.length}`,
+        );
+
+        return { deletedIds: ownedIds, notFoundIds };
     }
 
     // ---------------------------------------------------------------------------

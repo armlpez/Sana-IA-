@@ -2,6 +2,7 @@ import {
     Controller,
     Post,
     Get,
+    Delete,
     Body,
     Param,
     ParseIntPipe,
@@ -17,6 +18,7 @@ import { AnalyzeInputDto } from './dto/analyze-input.dto';
 import { AnalyzeResponseDto } from './dto/analyze-response.dto';
 import { ChatInputDto } from '../consultations/dto/chat-input.dto';
 import { ChatResponseDto } from '../consultations/dto/chat-response.dto';
+import { DeleteConversationsDto } from '../consultations/dto/delete-conversations.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
 // 'auth-sensitive'/'registration' are anti-abuse tiers scoped to specific auth
@@ -63,5 +65,21 @@ export class AiController {
         @Request() req: any,
     ) {
         return this.chatService.getConversation(id, req.user.id);
+    }
+
+    /**
+     * DELETE /v1/ai/conversations
+     *
+     * Bulk hard-delete of the user's conversations. Body: { "ids": number[] }.
+     * Returns 200 with { deletedIds, notFoundIds } — ids that don't exist or
+     * belong to another user land in notFoundIds instead of failing the batch.
+     */
+    @Delete('conversations')
+    @HttpCode(HttpStatus.OK)
+    async deleteConversations(
+        @Body() dto: DeleteConversationsDto,
+        @Request() req: any,
+    ) {
+        return this.chatService.deleteConversations(dto.ids, req.user.id);
     }
 }

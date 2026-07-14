@@ -1,5 +1,8 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { OcrResult } from '../ocr/entities/ocr-result.entity';
+import { StorageModule } from '../storage/storage.module';
 import { AiService } from './ai.service';
 import { ChatService } from './chat.service';
 import { AiController } from './ai.controller';
@@ -18,6 +21,12 @@ import aiModelsConfig from './config/model-tiers.config';
     imports: [
         ConsultationsModule,
         ChatMessagesModule,
+        // OcrResult repo + storage port are needed by ChatService.deleteConversations
+        // (explicit child-row cleanup + best-effort lab image removal). Registered
+        // directly instead of importing OcrModule — OcrModule already imports AiModule
+        // and importing it back would create a cycle.
+        TypeOrmModule.forFeature([OcrResult]),
+        StorageModule,
         // Ensure the aiModels config namespace is available within this module.
         // app.module.ts already registers it globally via ConfigModule.load([aiModelsConfig]),
         // but importing it here makes the module self-contained and testable in isolation.
